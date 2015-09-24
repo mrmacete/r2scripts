@@ -134,6 +134,7 @@ class MIPSString:
 
 		for addr in xrange(from_addr, to_addr+1, 4):
 			pdj = self.cmdj("pdj 1@" + hex(addr))
+
 			if len(pdj) > 0:
 				opcode = pdj[0]["opcode"]
 				try:
@@ -157,6 +158,7 @@ class MIPSString:
 		string_flag = self.get_str_flag(string_address)
 
 		if len(string_flag) > 0:
+			self.cmd("CC-")
 			self.cmd("CC " + string_flag)
 			self.cmd("axd " + str(string_address))
 			self.total_count += 1
@@ -165,7 +167,11 @@ class MIPSString:
 		self.cmd("s " + str(address))
 		self.search_window_from(address)
 
+
+
 		opcode_lui = Opcode(self.cmdj("aoj")[0]["opcode"])
+
+
 
 		reg = opcode_lui.dst_reg
 
@@ -174,23 +180,21 @@ class MIPSString:
 
 		imm_lui = opcode_lui.immediate
 
-		self.cmd("s/c addiu " + reg)
-
-		aa = self.rigid_asm_search("^addiu " + reg +".*$", address+4, address+128, 1)
+		aa = self.rigid_asm_search("^addiu.*" + reg +".*$", address+4, address+128, 1)
 
 		if len(aa) == 0:
 			return
 
-		addiu_addr = aa[0]
+		for addiu_addr in aa:
 
-		if addiu_addr == address or addiu_addr == 0:
-			return
+			if addiu_addr == address or addiu_addr == 0:
+				return
 
-		self.cmd("s " + str(addiu_addr))
+			self.cmd("s " + str(addiu_addr))
 
-		opcode_addiu = Opcode(self.cmdj("aoj")[0]["opcode"])
+			opcode_addiu = Opcode(self.cmdj("aoj")[0]["opcode"])
 
-		self.add_string_reference((imm_lui << 16) + opcode_addiu.immediate)
+			self.add_string_reference((imm_lui << 16) + opcode_addiu.immediate)
 
 	def sx_from_lw_to_addiu( self, address ):
 
@@ -213,23 +217,23 @@ class MIPSString:
 		if len(aa) == 0:
 			return
 
-		addiu_addr = aa[0]
+		for addiu_addr in aa:
 
-		if addiu_addr == address or addiu_addr == 0:
-			return
+			if addiu_addr == address or addiu_addr == 0:
+				return
 
-		self.cmd("s " + str(addiu_addr))
+			self.cmd("s " + str(addiu_addr))
 
-		opcode_addiu = Opcode(self.cmdj("aoj")[0]["opcode"])
+			opcode_addiu = Opcode(self.cmdj("aoj")[0]["opcode"])
 
-		self.add_string_reference(segment + opcode_addiu.immediate)
+			self.add_string_reference(segment + opcode_addiu.immediate)
 
 	def analyze( self ):
 		self.total_count = 0
 		self.init_gp()
 
-		print "searching for: " + "\"^lui [a-z0-9]{2}, \-?[0-9x]{3,4}$\" ..."
-		for plui in self.rigid_asm_search_executable("^lui [a-z0-9]{2}, \-?[0-9x]{3,4}$"):
+		print "searching for: " + "\"^lui [a-z0-9]{2}, \-?[a-z0-9x]{3,4}$\" ..."
+		for plui in self.rigid_asm_search_executable("^lui [a-z0-9]{2}, \-?[a-z0-9x]{3,4}$"):
 			self.sx_from_lui_to_addiu(plui)
 
 		print "searching for: " + "\"^lw.*\(gp\)$\" ..."
