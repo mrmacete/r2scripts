@@ -1,53 +1,66 @@
-# mipstring.py
+# esilstring.py
 
-r2pipe script to add data reference to strings and corresponding comments in disassembly, targeted for MIPS arch.
+r2pipe script which uses ESIL emulation to add non-obvious data reference to strings and corresponding comments in disassembly, targeted for MIPS arch - but potentially plaform independent.
+
+In my intents it's roughly the same as using "e asm.emu=true" but adds persistent references and comments, so it's possible to analyze refences to strings.
+
+The goal of all of this is to detect string references even in RISC architectures which requires pairs or longer sequences of instructions in order to forge an actual pointer to the data.
 
 ## usage
 
 Example session:
 
 ```
-$ r2 -i mipstring.py upnpd2
+$ r2 -i esilstring.py httpd
 Canonical gp value: 0x462f40
 
-searching for: "^lui [a-z0-9]{2}, \-?[0-9x]{3,4}$" ...
-searching for: "^lw.*\(gp\)$" ...
+emulating sym.AES_set_decrypt_key from 0x420b1c to 0x420e5c ...
+emulating sym.AES_encrypt from 0x420e5c to 0x4212a8 ...
+emulating sym.getCurrWanIp from 0x460340 to 0x460394 ...
+emulating sym.acos_itoa from 0x45fa50 to 0x45faa4 ...
+emulating sym.AES_cbc_encrypt from 0x422554 to 0x422a0c ...
+emulating sym.AES_decrypt from 0x4214ec to 0x421938 ...
+emulating sym.AES_set_encrypt_key from 0x420630 to 0x420648 ...
+emulating sym.checkStringTblInMTD from 0x49d8ac to 0x49de5c ...
+emulating sym._init from 0x406ba8 to 0x406c14 ...
+emulating sym.abFirewallLoadServices from 0x447330 to 0x4476d0 ...
+emulating sym.main from 0x411fd0 to 0x412690 ...
 
-Found 1527 string references.
+[...]
 
- -- Are you still there?
-[0x004236e0]> axt str.reboot
-d 0x42dc5c addiu a0, a0, -0x7620
-[0x004236e0]> s 0x42dc5c
-```
 
-The commented disassembly will look like this:
+Found 9914 references.
 
-```
-0x0042dc50   lui a0, 0x44
-0x0042dc54   lw t9, -0x7ab0(gp)       ; [0x45b490:4]=0x42f640 sym.imp.system
-0x0042dc58   jalr t9                  ;0x00000000() ; section..pdr
-0x0042dc5c   addiu a0, a0, -0x7620    ; str.reboot
-0x0042dc60   sw zero, -0x49dc(s0)
-0x0042dc64   b 0x42d4bc                ; sym.sa_method_check+0x84
-0x0042dc68   move v0, zero
-0x0042dc6c   lw t9, -0x7e9c(gp)       ; [0x45b0a4:4]=0x42fcb0 sym.imp.acosNvramConfig_get
-0x0042dc70   lui s2, 0x43
-0x0042dc74   jalr t9                  ;0x00000000() ; section..pdr
-0x0042dc78   addiu a0, s2, 0x9f4
-0x0042dc7c   lw gp, 0x18(sp)
-0x0042dc80   beqz v0, 0x42ddcc
-0x0042dc84   move s3, v0
-0x0042dc88   lb v0, (v0)
-0x0042dc8c   beqz v0, 0x42ddd0
-0x0042dc90   lw t9, -0x7ab0(gp)       ; [0x45b490:4]=0x42f640 sym.imp.system
-0x0042dc94   lw t9, -0x7e9c(gp)       ; [0x45b0a4:4]=0x42fcb0 sym.imp.acosNvramConfig_get
-0x0042dc98   lui a0, 0x43
-0x0042dc9c   jalr t9                  ;0x00000000() ; section..pdr
-0x0042dca0   addiu a0, a0, 0x2fc      ; str.lan_ipaddr
+ -- /dev/brain: No such file or directory.
+[0x00491d88]> axt str.PageData
+d 0x491d98 addiu a1, a1, -0x67b0
+d 0x491ed4 addiu a1, a1, -0x67b0
+d 0x4928a4 addiu a1, a1, -0x67b0
+d 0x492a50 addiu a1, a1, -0x67b0
+[0x00491d88]> pd 10 @ 0x491d98-24
+│           0x00491d80    8fb0024c       lw s0, 0x24c(sp)
+│           0x00491d84    03e00008       jr ra
+│           0x00491d88    27bd0270       addiu sp, sp, 0x270
+│           ; JMP XREF from 0x00491ccc (fcn.00491bc4)
+│           0x00491d8c    8f9983c4       lw t9, -0x7c3c(gp)            ; [0x553c64:4]=0x413514 sym.websGetVar
+│           0x00491d90    3c05004e       lui a1, 0x4e
+│           0x00491d94    02e02021       move a0, s7
+│           0x00491d98    24a59850       addiu a1, a1, -0x67b0         ; str.PageData
+│           0x00491d9c    0320f809       jalr t9                       ;0x00000000() ; section..pdr
+│           0x00491da0    02803021       move a2, s4
+│           0x00491da4    8fbc0010       lw gp, 0x10(sp)
+
 ```
 
 # what it does
-Basically it searches for instruction pairs building addresses and then check for each of them if the address was flagged as string.
 
-The heart of it is a linear search within disassembly using regular expression, which is both very effective and very slow.
+The algorithm is:
+
+* set a proper value for `gp` on MIPS arch
+* let r2 analyze everything
+* retrieve start address and length for each detected function (using r2 flags)
+* emulate each function separately (using `aesl` command to step linearly)
+* at each step, parse the destination register and read its emulated value
+* lookup that value in the flags
+* if a flag is hit, then add comment and `axd` a new reference to it
+* if no flags are hit, try even with `psz` to extract potential null-terminated strings, if present then add comment and data reference to it
