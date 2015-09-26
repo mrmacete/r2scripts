@@ -113,14 +113,41 @@ class MIPSString:
 		except:
 			return ""
 
+	def sort_and_merge( self, sections):
+		xsex = sorted(sections, key=lambda x: x[0])
+
+		result = []
+		for i in xrange(len(xsex)):
+			s = xsex[i]
+			if i > 0:
+				p = result[-1]
+				end_p = p[0]+p[1]
+				end_s = s[0]+s[1]
+				if end_s < end_p:
+					# this section is completely contained in the preceding one
+					continue
+
+				elif s[0] < end_p:
+					# overlapping, let's extend the previous one
+					p = (p[0], p[1]+(end_s-end_p))
+					results[-1] = p
+					continue
+
+			result.append(s)
+
+		return result
+
+
 	def rigid_asm_search_executable( self, asm_regex):
 
 		results = []
-		xsex = [s for s in self.cmdj("iSj") if s["flags"][3] == 'x']
+		xsex = [(s["addr"], s["size"]) for s in self.cmdj("iSj") if s["flags"][3] == 'x']
+
+		xsex = self.sort_and_merge( xsex )
 
 		for sec in xsex:
 
-			rr = self.rigid_asm_search(asm_regex, sec["addr"], sec["addr"]+sec["size"], None )
+			rr = self.rigid_asm_search(asm_regex, sec[0], sec[0]+sec[1], None )
 			results.extend(list(set(rr)))		
 
 
@@ -146,6 +173,67 @@ class MIPSString:
 					pass
 
 		return results
+
+	def m_rigid_asm_search_executable( self, asm_regexes):
+
+		results = {}
+
+		xsex = [(s["addr"], s["size"]) for s in self.cmdj("iSj") if s["flags"][3] == 'x']
+
+		xsex = self.sort_and_merge( xsex )
+
+		for sec in xsex:
+
+			rr = self.m_rigid_asm_search(asm_regexes, sec[0], sec[0]+sec[1], None )
+			for rex in rr:
+				lr = list(set(rr[rex]))
+				if rex in results:
+					results[rex].extend(lr)
+				else:
+					results[rex] = lr 
+
+
+		for rex in results:
+			results[rex] = list(set(results[rex]))
+
+		return results
+
+
+	def m_rigid_asm_search( self, asm_regexes, from_addr, to_addr, limit ):
+		results = {}
+		ars = {}
+
+		for asm_regex in asm_regexes:
+			ars[asm_regex] = re.compile(asm_regex)
+
+		for addr in xrange(from_addr, to_addr+1, 4):
+			pdj = self.cmdj("pdj 1@" + hex(addr))
+			
+			if len(pdj) > 0:
+				opcode = pdj[0]["opcode"]
+
+				saturation=0
+				for asm_regex in ars:
+					ar = ars[asm_regex]
+					
+					try:
+						if ar.match(opcode) != None:
+							if limit == None or len(results[asm_regex]) < limit:
+								if asm_regex in results:
+									results[asm_regex].append(addr)
+								else:
+									results[asm_regex] = [addr]
+
+							else:
+								saturation += 1
+					except:
+						pass
+
+				if saturation == len(asm_regex):
+					break
+
+		return results
+
 
 
 	def search_window_from( self, address, length = 128 ):
@@ -232,13 +320,29 @@ class MIPSString:
 		self.total_count = 0
 		self.init_gp()
 
+		print "searching..."
+		lui_rex = "^lui [a-z0-9]{2}, \-?[a-z0-9x]{3,4}$"
+		lw_rex = "^lw.*\(gp\)$"
+
+		res = self.m_rigid_asm_search_executable([lui_rex, lw_rex])
+
 		print "searching for: " + "\"^lui [a-z0-9]{2}, \-?[a-z0-9x]{3,4}$\" ..."
+		for plui in res[lui_rex]:
+			self.sx_from_lui_to_addiu(plui)
+
+		print "searching for: " + "\"^lw.*\(gp\)$\" ..."
+		for plw in res[lw_rex]:
+			self.sx_from_lw_to_addiu(plw)
+
+
+
+		"""print "searching for: " + "\"^lui [a-z0-9]{2}, \-?[a-z0-9x]{3,4}$\" ..."
 		for plui in self.rigid_asm_search_executable("^lui [a-z0-9]{2}, \-?[a-z0-9x]{3,4}$"):
 			self.sx_from_lui_to_addiu(plui)
 
 		print "searching for: " + "\"^lw.*\(gp\)$\" ..."
 		for plw in self.rigid_asm_search_executable("^lw.*\(gp\)$"):
-			self.sx_from_lw_to_addiu(plw)
+			self.sx_from_lw_to_addiu(plw)"""
 
 		print "\nFound " + str(self.total_count) + " string references.\n"
 
