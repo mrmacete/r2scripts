@@ -144,7 +144,7 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
     case BPF_ALU_LSH | BPF_X:
     case BPF_ALU_LSH | BPF_K:
         op->type = R_ANAL_OP_TYPE_SHL;
-        if (!(f->code & BPF_X)) {
+        if (BPF_SRC(f->code) == BPF_K) {
             op->val = f->k;
         }
         //op = r_bpf_op_table[BPF_ALU_LSH];
@@ -153,7 +153,7 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
     case BPF_ALU_RSH | BPF_X:
     case BPF_ALU_RSH | BPF_K:
         op->type = R_ANAL_OP_TYPE_SHR;
-        if (!(f->code & BPF_X)) {
+        if (BPF_SRC(f->code) == BPF_K) {
             op->val = f->k;
         }
         
@@ -163,7 +163,7 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
     case BPF_ALU_ADD | BPF_X:
     case BPF_ALU_ADD | BPF_K:
         op->type = R_ANAL_OP_TYPE_ADD;
-        if (!(f->code & BPF_X)) {
+        if (BPF_SRC(f->code) == BPF_K) {
             op->val = f->k;
         }
         //op = r_bpf_op_table[BPF_ALU_ADD];
@@ -172,7 +172,7 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
     case BPF_ALU_SUB | BPF_X:
     case BPF_ALU_SUB | BPF_K:
         op->type = R_ANAL_OP_TYPE_SUB;
-        if (!(f->code & BPF_X)) {
+        if (BPF_SRC(f->code) == BPF_K) {
             op->val = f->k;
         }
         //op = r_bpf_op_table[BPF_ALU_SUB];
@@ -181,7 +181,7 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
     case BPF_ALU_MUL | BPF_X:
     case BPF_ALU_MUL | BPF_K:
         op->type = R_ANAL_OP_TYPE_MUL;
-        if (!(f->code & BPF_X)) {
+        if (BPF_SRC(f->code) == BPF_K) {
             op->val = f->k;
         }
         //op = r_bpf_op_table[BPF_ALU_MUL];
@@ -190,7 +190,7 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
     case BPF_ALU_DIV | BPF_X:
     case BPF_ALU_DIV | BPF_K:
         op->type = R_ANAL_OP_TYPE_DIV;
-        if (!(f->code & BPF_X)) {
+        if (BPF_SRC(f->code) == BPF_K) {
             op->val = f->k;
         }
         //op = r_bpf_op_table[BPF_ALU_DIV];
@@ -199,7 +199,7 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
     case BPF_ALU_MOD | BPF_X:
     case BPF_ALU_MOD | BPF_K:
         op->type = R_ANAL_OP_TYPE_MOD;
-        if (!(f->code & BPF_X)) {
+        if (BPF_SRC(f->code) == BPF_K) {
             op->val = f->k;
         }
         //op = r_bpf_op_table[BPF_ALU_MOD];
@@ -208,7 +208,7 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
     case BPF_ALU_AND | BPF_X:
     case BPF_ALU_AND | BPF_K:
         op->type = R_ANAL_OP_TYPE_AND;
-        if (!(f->code & BPF_X)) {
+        if (BPF_SRC(f->code) == BPF_K) {
             op->val = f->k;
         }
         //op = r_bpf_op_table[BPF_ALU_AND];
@@ -217,7 +217,7 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
     case BPF_ALU_OR | BPF_X:
     case BPF_ALU_OR | BPF_K:
         op->type = R_ANAL_OP_TYPE_OR;
-        if (!(f->code & BPF_X)) {
+        if (BPF_SRC(f->code) == BPF_K) {
             op->val = f->k;
         }
         //op = r_bpf_op_table[BPF_ALU_OR];
@@ -226,7 +226,7 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
     case BPF_ALU_XOR | BPF_X:
     case BPF_ALU_XOR | BPF_K:
         op->type = R_ANAL_OP_TYPE_XOR;
-        if (!(f->code & BPF_X)) {
+        if (BPF_SRC(f->code) == BPF_K) {
             op->val = f->k;
         }
         //op = r_bpf_op_table[BPF_ALU_XOR];
