@@ -17,6 +17,46 @@
                 (op)->jump = (addr) + 8 + (f)->jt * 8;\
                 (op)->fail = (addr) + 8 + (f)->jf * 8;
 
+#define NEW_SRC_DST(op) \
+                (op)->src[0] = r_anal_value_new ();\
+                (op)->dst = r_anal_value_new ();
+
+#define SET_REG_SRC_DST(op, _src, _dst) \
+                NEW_SRC_DST((op));\
+                (op)->src[0]->reg = r_reg_get (anal->reg, (_src), R_REG_TYPE_GPR);\
+                (op)->dst->reg = r_reg_get (anal->reg, (_dst), R_REG_TYPE_GPR);\
+
+#define SET_REG_DST_IMM(op, _dst, _imm) \
+                NEW_SRC_DST((op));\
+                (op)->dst->reg = r_reg_get (anal->reg, (_dst), R_REG_TYPE_GPR);\
+                (op)->src[0]->imm = (_imm);\
+
+#define SET_A_SRC(op) \
+                (op)->src[0] = r_anal_value_new ();\
+                (op)->src[0]->reg = r_reg_get (anal->reg, "A", R_REG_TYPE_GPR);
+
+
+#define INSIDE_M(k) ((k) >= 0 && (k) <= 16)
+
+static const char* M[] = {
+    "M[0]",
+    "M[1]",
+    "M[2]",
+    "M[3]",
+    "M[4]",
+    "M[5]",
+    "M[6]",
+    "M[7]",
+    "M[8]",
+    "M[9]",
+    "M[10]",
+    "M[11]",
+    "M[12]",
+    "M[13]",
+    "M[14]",
+    "M[15]"
+};
+
 static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int len) {
     RBpfSockFilter * f = (RBpfSockFilter*) data;
     memset (op, '\0', sizeof (RAnalOp));
@@ -32,9 +72,12 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
         break;
     case BPF_MISC_TAX:
         op->type = R_ANAL_OP_TYPE_MOV;
+        SET_REG_SRC_DST (op, "A", "X");
         break;
     case BPF_MISC_TXA:
         op->type = R_ANAL_OP_TYPE_MOV;
+        SET_REG_SRC_DST (op, "X", "A");
+
         break;
     case BPF_ST:
         op->type = R_ANAL_OP_TYPE_MOV;
@@ -75,12 +118,14 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
     case BPF_LD | BPF_IMM:
         op->type = R_ANAL_OP_TYPE_MOV;
         op->val = f->k;
+        SET_REG_DST_IMM (op, "A", f->k);
         //op = r_bpf_op_table[BPF_LD_W];
         //fmt = "#%#x";
         break;
     case BPF_LDX | BPF_IMM:
         op->type = R_ANAL_OP_TYPE_MOV;
         op->val = f->k;
+        SET_REG_DST_IMM (op, "X", f->k);
         //op = r_bpf_op_table[BPF_LDX];
         //fmt = "#%#x";
         break;
@@ -91,11 +136,18 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
         break;
     case BPF_LD | BPF_MEM:
         op->type = R_ANAL_OP_TYPE_MOV;
+        if (INSIDE_M (f->k)) {
+            SET_REG_SRC_DST (op, M[f->k], "A")
+        }
+        
         //op = r_bpf_op_table[BPF_LD_W];
         //fmt = "M[%d]";
         break;
     case BPF_LDX | BPF_MEM:
         op->type = R_ANAL_OP_TYPE_MOV;
+        if (INSIDE_M (f->k)) {
+            SET_REG_SRC_DST (op, M[f->k], "X")
+        }
         //op = r_bpf_op_table[BPF_LDX];
         //fmt = "M[%d]";
         break;
@@ -155,6 +207,9 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
         op->type = R_ANAL_OP_TYPE_SHR;
         if (BPF_SRC(f->code) == BPF_K) {
             op->val = f->k;
+            SET_REG_DST_IMM (op, "A", f->k);
+        } else {
+            SET_REG_SRC_DST (op, "X", "A");
         }
         
         //op = r_bpf_op_table[BPF_ALU_RSH];
@@ -165,6 +220,9 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
         op->type = R_ANAL_OP_TYPE_ADD;
         if (BPF_SRC(f->code) == BPF_K) {
             op->val = f->k;
+            SET_REG_DST_IMM (op, "A", f->k);
+        } else {
+            SET_REG_SRC_DST (op, "X", "A");
         }
         //op = r_bpf_op_table[BPF_ALU_ADD];
         //fmt = "#%d";
@@ -174,6 +232,9 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
         op->type = R_ANAL_OP_TYPE_SUB;
         if (BPF_SRC(f->code) == BPF_K) {
             op->val = f->k;
+            SET_REG_DST_IMM (op, "A", f->k);
+        } else {
+            SET_REG_SRC_DST (op, "X", "A");
         }
         //op = r_bpf_op_table[BPF_ALU_SUB];
         //fmt = "#%d";
@@ -183,6 +244,9 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
         op->type = R_ANAL_OP_TYPE_MUL;
         if (BPF_SRC(f->code) == BPF_K) {
             op->val = f->k;
+            SET_REG_DST_IMM (op, "A", f->k);
+        } else {
+            SET_REG_SRC_DST (op, "X", "A");
         }
         //op = r_bpf_op_table[BPF_ALU_MUL];
         //fmt = "#%d";
@@ -192,6 +256,9 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
         op->type = R_ANAL_OP_TYPE_DIV;
         if (BPF_SRC(f->code) == BPF_K) {
             op->val = f->k;
+            SET_REG_DST_IMM (op, "A", f->k);
+        } else {
+            SET_REG_SRC_DST (op, "X", "A");
         }
         //op = r_bpf_op_table[BPF_ALU_DIV];
         //fmt = "#%d";
@@ -201,6 +268,9 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
         op->type = R_ANAL_OP_TYPE_MOD;
         if (BPF_SRC(f->code) == BPF_K) {
             op->val = f->k;
+            SET_REG_DST_IMM (op, "A", f->k);
+        } else {
+            SET_REG_SRC_DST (op, "X", "A");
         }
         //op = r_bpf_op_table[BPF_ALU_MOD];
         //fmt = "#%d";
@@ -210,6 +280,9 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
         op->type = R_ANAL_OP_TYPE_AND;
         if (BPF_SRC(f->code) == BPF_K) {
             op->val = f->k;
+            SET_REG_DST_IMM (op, "A", f->k);
+        } else {
+            SET_REG_SRC_DST (op, "X", "A");
         }
         //op = r_bpf_op_table[BPF_ALU_AND];
         //fmt = "#%#x";
@@ -219,6 +292,9 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
         op->type = R_ANAL_OP_TYPE_OR;
         if (BPF_SRC(f->code) == BPF_K) {
             op->val = f->k;
+            SET_REG_DST_IMM (op, "A", f->k);
+        } else {
+            SET_REG_SRC_DST (op, "X", "A");
         }
         //op = r_bpf_op_table[BPF_ALU_OR];
         //fmt = "#%#x";
@@ -228,6 +304,9 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
         op->type = R_ANAL_OP_TYPE_XOR;
         if (BPF_SRC(f->code) == BPF_K) {
             op->val = f->k;
+            SET_REG_DST_IMM (op, "A", f->k);
+        } else {
+            SET_REG_SRC_DST (op, "X", "A");
         }
         //op = r_bpf_op_table[BPF_ALU_XOR];
         //fmt = "#%#x";
@@ -240,6 +319,30 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
     return op->size;
 }
 
+static int set_reg_profile(RAnal *anal) {
+    const char *p =
+    "gpr    A        .32 0   0\n"
+    "gpr    X        .32 4   0\n"
+    "gpr    M[0]     .32 8   0\n"
+    "gpr    M[1]     .32 12   0\n"
+    "gpr    M[2]     .32 16   0\n"
+    "gpr    M[3]     .32 20   0\n"
+    "gpr    M[4]     .32 24   0\n"
+    "gpr    M[5]     .32 28   0\n"
+    "gpr    M[6]     .32 32   0\n"
+    "gpr    M[7]     .32 36   0\n"
+    "gpr    M[8]     .32 40   0\n"
+    "gpr    M[9]     .32 44   0\n"
+    "gpr    M[10]    .32 48   0\n"
+    "gpr    M[11]    .32 52   0\n"
+    "gpr    M[12]    .32 56   0\n"
+    "gpr    M[13]    .32 60   0\n"
+    "gpr    M[14]    .32 64   0\n"
+    "gpr    M[15]    .32 68   0\n";
+    return r_reg_set_profile_string (anal->reg, p);
+}
+
+
 struct r_anal_plugin_t r_anal_plugin_bpf = {
     .name = "bpf",
     .desc = "Berkely packet filter analysis plugin",
@@ -249,7 +352,7 @@ struct r_anal_plugin_t r_anal_plugin_bpf = {
     .init = NULL,
     .fini = NULL,
     .op = &bpf_anal,
-    .set_reg_profile = NULL,
+    .set_reg_profile = &set_reg_profile,
     .fingerprint_bb = NULL,
     .fingerprint_fcn = NULL,
     .diff_bb = NULL,
