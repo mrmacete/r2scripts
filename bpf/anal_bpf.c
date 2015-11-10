@@ -17,6 +17,12 @@
                 (op)->jump = (addr) + 8 + (f)->jt * 8;\
                 (op)->fail = (addr) + 8 + (f)->jf * 8;
 
+#define EMIT_LOAD(op, addr, size) \
+                (op)->type = R_ANAL_OP_TYPE_LOAD;\
+                (op)->ptr = (addr);\
+                (op)->ptrsize = (size);
+
+
 #define NEW_SRC_DST(op) \
                 (op)->src[0] = r_anal_value_new ();\
                 (op)->dst = r_anal_value_new ();
@@ -34,6 +40,12 @@
 #define SET_A_SRC(op) \
                 (op)->src[0] = r_anal_value_new ();\
                 (op)->src[0]->reg = r_reg_get (anal->reg, "A", R_REG_TYPE_GPR);
+
+#define SET_A_DST(op) \
+                (op)->dst = r_anal_value_new ();\
+                (op)->dst->reg = r_reg_get (anal->reg, "A", R_REG_TYPE_GPR);
+
+
 
 
 #define INSIDE_M(k) ((k) >= 0 && (k) <= 16)
@@ -77,6 +89,13 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
     case BPF_RET | BPF_A:
     case BPF_RET | BPF_X:
         op->type = R_ANAL_OP_TYPE_RET;
+        if (BPF_SRC(f->code) == BPF_K ) { 
+            esilprintf (op, "%"PFMT64d",$", f->k);
+        } else if (BPF_SRC(f->code) == BPF_A ) {
+            esilprintf (op, "A,$");
+        } else if (BPF_SRC(f->code) == BPF_X ) {
+            esilprintf (op, "X,$");
+        }
         break;
     case BPF_MISC_TAX:
         op->type = R_ANAL_OP_TYPE_MOV;
@@ -89,40 +108,55 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
         esilprintf (op, "X,A,=");
         break;
     case BPF_ST:
-        op->type = R_ANAL_OP_TYPE_MOV;
+        if (INSIDE_M (f->k)) {
+            op->type = R_ANAL_OP_TYPE_MOV;
+            SET_REG_SRC_DST (op, "A", M[f->k]);
+            esilprintf (op, "A,M[%"PFMT64d"],=", f->k);
+        } else {
+            op->type = R_ANAL_OP_TYPE_ILL;
+        }
         break;
     case BPF_STX:
-        op->type = R_ANAL_OP_TYPE_MOV;
+        if (INSIDE_M (f->k)) {
+            op->type = R_ANAL_OP_TYPE_MOV;
+            SET_REG_SRC_DST (op, "X", M[f->k]);
+            esilprintf (op, "X,M[%"PFMT64d"],=", f->k);
+        } else {
+            op->type = R_ANAL_OP_TYPE_ILL;
+        }
         break;
     case BPF_LD_W | BPF_ABS:
-        op->type = R_ANAL_OP_TYPE_LOAD;
-        //op = r_bpf_op_table[BPF_LD_W];
-        //fmt = "[%d]";
+        EMIT_LOAD (op, anal->gp + f->k, 4);
+        SET_A_DST(op);
+        esilprintf (op, "%"PFMT64d",[4],A,=", op->ptr);
         break;
     case BPF_LD_H | BPF_ABS:
-        op->type = R_ANAL_OP_TYPE_LOAD;
-        //op = r_bpf_op_table[BPF_LD_H];
-        //fmt = "[%d]";
+        EMIT_LOAD (op, anal->gp + f->k, 2);
+        SET_A_DST(op);
+        esilprintf (op, "%"PFMT64d",[2],A,=", op->ptr);
         break;
     case BPF_LD_B | BPF_ABS:
-        op->type = R_ANAL_OP_TYPE_LOAD;
-        //op = r_bpf_op_table[BPF_LD_B];
-        //fmt = "[%d]";
+        EMIT_LOAD (op, anal->gp + f->k, 1);
+        SET_A_DST(op);
+        esilprintf (op, "%"PFMT64d",[1],A,=", op->ptr);
         break;
     case BPF_LD_W | BPF_IND:
         op->type = R_ANAL_OP_TYPE_LOAD;
-        //op = r_bpf_op_table[BPF_LD_W];
-        //fmt = "[x+%d]";
+        op->ptrsize = 4;
+        SET_A_DST(op);
+        esilprintf (op, "%"PFMT64d",X,+,[4],A,=", anal->gp + f->k);
         break;
     case BPF_LD_H | BPF_IND:
         op->type = R_ANAL_OP_TYPE_LOAD;
-        //op = r_bpf_op_table[BPF_LD_H];
-        //fmt = "[x+%d]";
+        op->ptrsize = 2;
+        SET_A_DST(op);
+        esilprintf (op, "%"PFMT64d",X,+,[2],A,=", anal->gp + f->k);
         break;
     case BPF_LD_B | BPF_IND:
         op->type = R_ANAL_OP_TYPE_LOAD;
-        //op = r_bpf_op_table[BPF_LD_B];
-        //fmt = "[x+%d]";
+        op->ptrsize = 1;
+        SET_A_DST(op);
+        esilprintf (op, "%"PFMT64d",X,+,[1],A,=", anal->gp + f->k);
         break;
     case BPF_LD | BPF_IMM:
         op->type = R_ANAL_OP_TYPE_MOV;
@@ -138,6 +172,10 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
         break;
     case BPF_LDX_B | BPF_MSH:
         op->type = R_ANAL_OP_TYPE_LOAD;
+        op->ptrsize = 1;
+        op->ptr = anal->gp + f->k;
+        SET_A_DST(op);
+        esilprintf (op, "%"PFMT64d",[1],0xf,&,4,*,X,=", op->ptr);
         break;
     case BPF_LD | BPF_MEM:
         op->type = R_ANAL_OP_TYPE_MOV;
@@ -353,23 +391,53 @@ static int set_reg_profile(RAnal *anal) {
     return r_reg_set_profile_string (anal->reg, p);
 }
 
+static int bpf_esil_int(RAnalEsil *esil, int interrupt) {
+
+    eprintf("ESIL INT: %d\n", interrupt);
+    return 1;
+}
 
 struct r_anal_plugin_t r_anal_plugin_bpf = {
     .name = "bpf",
     .desc = "Berkely packet filter analysis plugin",
     .license = "GPLv2",
-    .arch = NULL,
-    .bits = 64,
+    .arch = "bpf",
+    .bits = 32,
     .esil = true,
-    .init = NULL,
+    .init = NULL, 
     .fini = NULL,
+    .reset_counter = NULL,
+    .archinfo = NULL,
     .op = &bpf_anal,
+    .bb = NULL,
+    .fcn = NULL,
+    .analyze_fns = NULL,
+    .op_from_buffer = NULL,
+    .bb_from_buffer = NULL,
+    .fn_from_buffer = NULL,
+    .analysis_algorithm = NULL,
     .set_reg_profile = &set_reg_profile,
     .fingerprint_bb = NULL,
     .fingerprint_fcn = NULL,
     .diff_bb = NULL,
     .diff_fcn = NULL,
-    .diff_eval = NULL
+    .diff_eval = NULL,
+    .pre_anal = NULL,
+    .pre_anal_fn_cb = NULL,
+    .pre_anal_op_cb = NULL,
+    .post_anal_op_cb = NULL,
+    .pre_anal_bb_cb = NULL,
+    .post_anal_bb_cb = NULL,
+    .post_anal_fn_cb = NULL,
+    .post_anal = NULL,
+    .revisit_bb_anal = NULL,
+    .cmd_ext = NULL,
+    .esil_init = NULL,
+    .esil_post_loop = NULL,
+    .esil_intr = NULL,
+    .esil_trap = NULL,
+    .esil_fini = NULL
+
 };
 
 #ifndef CORELIB

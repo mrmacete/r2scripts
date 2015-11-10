@@ -20,7 +20,7 @@ all:
 #	$(CC_COR) -o bpf_core.$(EXT_SO) bpf_core.c
 
 install: all
-	cp -f *.$(EXT_SO) $(R2_PLUGIN_PATH)
+	sudo cp -f *.$(EXT_SO) $(R2_PLUGIN_PATH)
 
 uninstall:
 	for a in *.$(EXT_SO) ; do rm -f $(R2_PLUGIN_PATH)/$$a ; done
