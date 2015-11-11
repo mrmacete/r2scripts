@@ -23,3 +23,10 @@ There are two known warnings:
 * be sure to have the latest [radare2 from git](https://github.com/radare/radare2)
 * on mac systems radare2 should be installed with sys/install.sh (and not sys/user.sh) because the Makefile relies on a properly working `pkg-config`
 
+## Example
+
+The provided [bpf.bin](bpf.bin) is ripped from the berkeley crackme, here is an example session:
+
+[![asciicast](https://asciinema.org/a/1q8oq25bjpp00aut5v5sd4sez.png)](https://asciinema.org/a/1q8oq25bjpp00aut5v5sd4sez)
+
+Moreover, i wrote an [r2pipe script](https://github.com/mrmacete/r2scripts/tree/master/bpf-test) able to read a pcap file, iterate packets, and test them against the filter by using ESIL emulation.
