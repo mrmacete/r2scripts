@@ -30,3 +30,7 @@ The provided [bpf.bin](bpf.bin) is ripped from the [berkeley crackme](http://cra
 [![asciicast](https://asciinema.org/a/1q8oq25bjpp00aut5v5sd4sez.png)](https://asciinema.org/a/1q8oq25bjpp00aut5v5sd4sez)
 
 Moreover, i wrote an [r2pipe script](https://github.com/mrmacete/r2scripts/tree/master/bpf-test) able to read a pcap file, iterate packets, and test them against the filter by using ESIL emulation.
+
+Here is a not-so-clear live action trying to explain the steps of the above python script:
+
+[![asciicast](https://asciinema.org/a/e22kxl5wncmcnqfvseq0k6dxj.png)](https://asciinema.org/a/e22kxl5wncmcnqfvseq0k6dxj)
