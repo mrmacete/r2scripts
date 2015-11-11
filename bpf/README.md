@@ -34,3 +34,7 @@ Moreover, i wrote an [r2pipe script](https://github.com/mrmacete/r2scripts/tree/
 Here is a not-so-clear live action trying to explain the steps of the above python script:
 
 [![asciicast](https://asciinema.org/a/e22kxl5wncmcnqfvseq0k6dxj.png)](https://asciinema.org/a/e22kxl5wncmcnqfvseq0k6dxj)
+
+## License
+
+Since most of asm_bpf.c is ripped from Linux kernel, it's licensed on GPLv2.
