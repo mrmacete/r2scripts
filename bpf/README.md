@@ -25,7 +25,7 @@ There are two known warnings:
 
 ## Example
 
-The provided [bpf.bin](bpf.bin) is ripped from the berkeley crackme, here is an example session:
+The provided [bpf.bin](bpf.bin) is ripped from the [berkeley crackme](http://crackmes.de/users/kwisatz_haderach/berkeley/), here is an example session:
 
 [![asciicast](https://asciinema.org/a/1q8oq25bjpp00aut5v5sd4sez.png)](https://asciinema.org/a/1q8oq25bjpp00aut5v5sd4sez)
 
