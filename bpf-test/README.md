@@ -13,4 +13,4 @@ pip install r2pipe
 pip install pycapfile
 ```
 
-And, of course, the bpf architecture plugin linked above.
+And, of course, the Berkeley Packet Filter architecture radare2 plugin linked above.
