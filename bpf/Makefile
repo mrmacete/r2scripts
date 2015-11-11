@@ -8,15 +8,15 @@ LDFLAGS=-shared -L$(R2_LIB_PATH) -lr_util -lr_parse -lr_db -lr_syscall
 
 EXT_SO=$(shell r2 -hh|grep LIBEXT|awk '{print $$2}')
 
-CC_ASM=$(CC) $(CFLAGS) $(LDFLAGS) -lr_asm 
+CC_ASM=$(CC) $(CFLAGS) $(LDFLAGS) $(shell pkg-config --libs r_asm)
 CC_ANA=$(CC) $(CFLAGS) $(LDFLAGS) $(shell pkg-config --libs r_anal)
-CC_BIN=$(CC) $(CFLAGS) $(LDFLAGS) $(shell pkg-config --libs r_bin)
+CC_BIN=$(CC) $(CFLAGS) $(LDFLAGS) $(shell pkg-config --libs r_bin) -lr_magic
 CC_COR=$(CC) $(CFLAGS) $(LDFLAGS) $(shell pkg-config --libs r_core)
 
 all:
 	$(CC_ASM) -o asm_bpf.$(EXT_SO) asm_bpf.c
 	$(CC_ANA) -o anal_bpf.$(EXT_SO) anal_bpf.c
-#	$(CC_BIN) -o bpf_bin.$(EXT_SO) bpf_bin.c
+	$(CC_BIN) -o bin_bpf.$(EXT_SO) bin_bpf.c
 #	$(CC_COR) -o bpf_core.$(EXT_SO) bpf_core.c
 
 install: all

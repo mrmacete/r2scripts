@@ -13,37 +13,37 @@
 
 
 #define EMIT_CJMP(op, addr, f) \
-                (op)->type =  R_ANAL_OP_TYPE_CJMP;\
-                (op)->jump = (addr) + 8 + (f)->jt * 8;\
-                (op)->fail = (addr) + 8 + (f)->jf * 8;
+            (op)->type =  R_ANAL_OP_TYPE_CJMP;\
+            (op)->jump = (addr) + 8 + (f)->jt * 8;\
+            (op)->fail = (addr) + 8 + (f)->jf * 8;
 
 #define EMIT_LOAD(op, addr, size) \
-                (op)->type = R_ANAL_OP_TYPE_LOAD;\
-                (op)->ptr = (addr);\
-                (op)->ptrsize = (size);
+            (op)->type = R_ANAL_OP_TYPE_LOAD;\
+            (op)->ptr = (addr);\
+            (op)->ptrsize = (size);
 
 
 #define NEW_SRC_DST(op) \
-                (op)->src[0] = r_anal_value_new ();\
-                (op)->dst = r_anal_value_new ();
+            (op)->src[0] = r_anal_value_new ();\
+            (op)->dst = r_anal_value_new ();
 
 #define SET_REG_SRC_DST(op, _src, _dst) \
-                NEW_SRC_DST((op));\
-                (op)->src[0]->reg = r_reg_get (anal->reg, (_src), R_REG_TYPE_GPR);\
-                (op)->dst->reg = r_reg_get (anal->reg, (_dst), R_REG_TYPE_GPR);\
+            NEW_SRC_DST((op));\
+            (op)->src[0]->reg = r_reg_get (anal->reg, (_src), R_REG_TYPE_GPR);\
+            (op)->dst->reg = r_reg_get (anal->reg, (_dst), R_REG_TYPE_GPR);\
 
 #define SET_REG_DST_IMM(op, _dst, _imm) \
-                NEW_SRC_DST((op));\
-                (op)->dst->reg = r_reg_get (anal->reg, (_dst), R_REG_TYPE_GPR);\
-                (op)->src[0]->imm = (_imm);\
+            NEW_SRC_DST((op));\
+            (op)->dst->reg = r_reg_get (anal->reg, (_dst), R_REG_TYPE_GPR);\
+            (op)->src[0]->imm = (_imm);\
 
 #define SET_A_SRC(op) \
-                (op)->src[0] = r_anal_value_new ();\
-                (op)->src[0]->reg = r_reg_get (anal->reg, "A", R_REG_TYPE_GPR);
+            (op)->src[0] = r_anal_value_new ();\
+            (op)->src[0]->reg = r_reg_get (anal->reg, "A", R_REG_TYPE_GPR);
 
 #define SET_A_DST(op) \
-                (op)->dst = r_anal_value_new ();\
-                (op)->dst->reg = r_reg_get (anal->reg, "A", R_REG_TYPE_GPR);
+            (op)->dst = r_anal_value_new ();\
+            (op)->dst->reg = r_reg_get (anal->reg, "A", R_REG_TYPE_GPR);
 
 
 
@@ -206,31 +206,35 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
         EMIT_CJMP (op, addr, f);
         op->cond = R_ANAL_COND_GT;
         op->val = f->k;
-        esilprintf (op, "%"PFMT64d",A,>,?{,%"PFMT64d",pc,=,BREAK,},%"PFMT64d",pc,=",
-                    op->val, op->jump, op->fail );
+        esilprintf (op, 
+            "%"PFMT64d",A,>,?{,%"PFMT64d",pc,=,BREAK,},%"PFMT64d",pc,=",
+            op->val, op->jump, op->fail );
         break;
     case BPF_JMP_JGE | BPF_X:
     case BPF_JMP_JGE | BPF_K:
         EMIT_CJMP (op, addr, f);
         op->cond = R_ANAL_COND_GE;
         op->val = f->k;
-        esilprintf (op, "%"PFMT64d",A,>=,?{,%"PFMT64d",pc,=,BREAK,},%"PFMT64d",pc,=",
-                    op->val, op->jump, op->fail );
+        esilprintf (op, 
+            "%"PFMT64d",A,>=,?{,%"PFMT64d",pc,=,BREAK,},%"PFMT64d",pc,=",
+            op->val, op->jump, op->fail );
         break;
     case BPF_JMP_JEQ | BPF_X:
     case BPF_JMP_JEQ | BPF_K:
         EMIT_CJMP (op, addr, f);
         op->cond = R_ANAL_COND_EQ;
         op->val = f->k;
-        esilprintf (op, "%"PFMT64d",A,==,?{,%"PFMT64d",pc,=,BREAK,},%"PFMT64d",pc,=",
-                    op->val, op->jump, op->fail );
+        esilprintf (op, 
+            "%"PFMT64d",A,==,$z,?{,%"PFMT64d",pc,=,BREAK,},%"PFMT64d",pc,=",
+            op->val, op->jump, op->fail );
         break;
     case BPF_JMP_JSET | BPF_X:
     case BPF_JMP_JSET | BPF_K:
         EMIT_CJMP (op, addr, f);
         op->val = f->k;
-        esilprintf (op, "%"PFMT64d",A,&,?{,%"PFMT64d",pc,=,BREAK,},%"PFMT64d",pc,=",
-                    op->val, op->jump, op->fail );
+        esilprintf (op, 
+            "%"PFMT64d",A,&,!,?{,%"PFMT64d",pc,=,BREAK,},%"PFMT64d",pc,=",
+            op->val, op->jump, op->fail );
         break;
     case BPF_ALU_NEG:
         op->type = R_ANAL_OP_TYPE_NOT;
@@ -265,9 +269,9 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
     case BPF_ALU_ADD | BPF_K:
         op->type = R_ANAL_OP_TYPE_ADD;
         if (BPF_SRC(f->code) == BPF_K) {
-            op->val = f->k;
-            SET_REG_DST_IMM (op, "A", f->k);
-            esilprintf (op, "%"PFMT64d",A+=", f->k);
+            op->val = f->k;            
+            SET_REG_DST_IMM (op, "A", op->val);
+            esilprintf (op, "%"PFMT64d",A,+=", op->val);
         } else {
             SET_REG_SRC_DST (op, "X", "A");
             esilprintf (op, "X,A,+=");
@@ -278,8 +282,8 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
         op->type = R_ANAL_OP_TYPE_SUB;
         if (BPF_SRC(f->code) == BPF_K) {
             op->val = f->k;
-            SET_REG_DST_IMM (op, "A", f->k);
-            esilprintf (op, "%"PFMT64d",A,-=", f->k);
+            SET_REG_DST_IMM (op, "A", op->val);
+            esilprintf (op, "%"PFMT64d",A,-=", op->val);
 
         } else {
             SET_REG_SRC_DST (op, "X", "A");
@@ -393,7 +397,16 @@ static int set_reg_profile(RAnal *anal) {
 
 static int bpf_esil_int(RAnalEsil *esil, int interrupt) {
 
-    eprintf("ESIL INT: %d\n", interrupt);
+    switch (interrupt) {
+    case 0:
+        esil->anal->cb_printf ("; BPF result: DROP\n");
+        break;
+    case 65535:
+        esil->anal->cb_printf ("; BPF result: ACCEPT\n");
+        break;
+    default:
+        esil->anal->cb_printf ("; BPF result: UNKNOWN\n");
+    }
     return 1;
 }
 
@@ -434,7 +447,7 @@ struct r_anal_plugin_t r_anal_plugin_bpf = {
     .cmd_ext = NULL,
     .esil_init = NULL,
     .esil_post_loop = NULL,
-    .esil_intr = NULL,
+    .esil_intr = &bpf_esil_int,
     .esil_trap = NULL,
     .esil_fini = NULL
 
