@@ -10,7 +10,15 @@ It is composed by three plugins:
 * **anal_bpf** this is the major contribution of this package, i.e. the analysis plugin which translates everything to ESIL and permits to emulate it completely
 * **bin_bpf** is a placeholder, not sure if it's useful at all since there isn't a specific file format - i'm using it just to remember that data is represented big endian by enforcing this information
 
-## Building
+## Installing using r2pm
+
+This plugin is available in latest r2pm, therefore can be installed simply by:
+
+```
+r2pm -i bpf
+```
+
+## Building manually
 
 In unix system (tested on mac, but should work in Linux or *BSD out of the box) it should be as easy as doing:
 
