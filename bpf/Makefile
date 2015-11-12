@@ -3,6 +3,7 @@ R2_INCLUDE_PATH=$(shell r2 -hh|grep INCDIR|awk '{print $$2}')
 R2_LIB_PATH=$(shell r2 -hh|grep LIBDIR|awk '{print $$2}')
 CFLAGS=-g -fPIC
 CFLAGS+=-I$(R2_INCLUDE_PATH)
+SUDO=sudo
 
 LDFLAGS=-shared -L$(R2_LIB_PATH) -lr_util -lr_parse -lr_db -lr_syscall
 
@@ -20,7 +21,7 @@ all:
 #	$(CC_COR) -o bpf_core.$(EXT_SO) bpf_core.c
 
 install: all
-	sudo cp -f *.$(EXT_SO) $(R2_PLUGIN_PATH)
+	$(SUDO) cp -f *.$(EXT_SO) $(R2_PLUGIN_PATH)
 
 uninstall:
 	for a in *.$(EXT_SO) ; do rm -f $(R2_PLUGIN_PATH)/$$a ; done
