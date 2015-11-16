@@ -11,6 +11,7 @@
 #include <r_asm.h>
 #include "bpf.h"
 
+
 static int disassemble(RAsm *a, RAsmOp *r_op, const ut8 *buf, int len) {
 	const char *op, *fmt;
 	RBpfSockFilter * f = (RBpfSockFilter*)buf;
@@ -81,6 +82,10 @@ static int disassemble(RAsm *a, RAsmOp *r_op, const ut8 *buf, int len) {
 	case BPF_LDX | BPF_IMM:
 		op = r_bpf_op_table[BPF_LDX];
 		fmt = "#%#x";
+		break;
+	case BPF_LDX | BPF_LEN:
+		op = r_bpf_op_table[BPF_LDX];
+		fmt = "#len";
 		break;
 	case BPF_LDX_B | BPF_MSH:
 		op = r_bpf_op_table[BPF_LDX_B];
@@ -235,14 +240,500 @@ static int disassemble(RAsm *a, RAsmOp *r_op, const ut8 *buf, int len) {
 	return r_op->size = 8;
 }
 
+#if 0 // WIP
+/* start of ASSEMBLER code */
+
+#define PARSER_MAX_TOKENS 4
+
+#define COPY_AND_RET(a, b) \
+	memcpy(a, b, sizeof(*b));\
+	return 0;
+
+#define PARSE_FAILURE(message) \
+	{ eprintf("PARSE FAILURE: "message"\n");\
+	return -1;}
+
+#define CMP4(tok, n, x, y, z, w) \
+	(tok[n][0] == x && tok[n][1] == y && tok[n][2] == z && tok[n][3] == w)
+
+#define CMP3(tok, n, x, y, z) \
+	(tok[n][0] == x && tok[n][1] == y && tok[n][2] == z)
+
+#define CMP2(tok, n, x, y) \
+	(tok[n][0] == x && tok[n][1] == y)
+
+#define IS_K_TOK(tok,n) \
+	(tok[n][0] == '#')
+
+#define PARSE_K_OR_FAIL(dst, tok, n) \
+	dst = strtol (&tok[n][1], &end, 0);\
+	if (*end != '\0' && *end != ',' ) PARSE_FAILURE ("could not parse k");\
+
+#define PARSE_LABEL_OR_FAIL(dst, tok, n) \
+	dst = (tok[n][0] == 'l') ? \
+		strtoul (&tok[n][1], &end, 10) << 3 : \
+		strtoul (&tok[n][0], &end, 0);\
+	if (*end != '\0' && *end != ',') PARSE_FAILURE ("could not parse label");
+
+#define PARSE_OFFSET_OR_FAIL(dst, tok,n,off) \
+	dst = strtoul (&tok[n][off], &end, 10);\
+	if (*end != ']') PARSE_FAILURE ("could not parse offset value");
+
+#define PARSE_IND_ABS_OR_FAIL(f,tok,n) \
+	if (CMP3 (tok, 1, '[','x','+')) {\
+		f->code = f->code | BPF_IND;\
+		PARSE_OFFSET_OR_FAIL (f->k, tok, 1, 3);\
+	} else if (tok[1][0] == '[') {\
+		f->code = f->code | BPF_ABS;\
+		PARSE_OFFSET_OR_FAIL (f->k, tok, 1, 1);\
+	}
+
+#define PARSE_K_OR_X_OR_FAIL(f, tok) \
+	if (IS_K_TOK (tok, 1)) {\
+		PARSE_K_OR_FAIL (f->k, tok, 1);\
+		f->code = f->code | BPF_K;\
+	} else if (CMP2 (tok,1, 'x','0')) {\
+		f->code = f->code | BPF_X;\
+	} else {\
+		PARSE_FAILURE ("could not parse k or x");\
+	}
+
+#define PARSE_A_OR_X_OR_FAIL(f, tok) \
+	if (CMP2 (tok,1, 'x','0')) {\
+		f->code = f->code | BPF_X;\
+	} else if (CMP2 (tok,1, 'a','0')) {\
+		f->code = f->code | BPF_A;\
+	} else {\
+		PARSE_FAILURE ("could not parse a or x");\
+	}
+
+#define PARSE_JUMP_TARGETS(a, f, tok, count) \
+	PARSE_K_OR_X_OR_FAIL (f, tok);\
+	if (count == 3) {\
+		PARSE_LABEL_OR_FAIL (label, tok, 2);\
+		f->jt = (label - a->pc) >> 3;\
+		f->jf = (a->pc >> 3) + 1;\
+	}\
+	if ( count == 4) {\
+		PARSE_LABEL_OR_FAIL (label, tok, 3);\
+		f->jf = (label - a->pc) >> 3;\
+	}
+
+#define SWAP_JUMP_TARGETS(f) \
+		temp = f->jt;\
+		f->jt = f->jf;\
+		f->jf = temp;
+
+static int assemble_ld(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS], int count, RBpfSockFilter * f) {
+	char * end;
+
+	switch (tok[0][2]) {
+	case '\0':
+		f->code = BPF_LD_W;
+		PARSE_IND_ABS_OR_FAIL (f,tok,1);
+		if (CMP2 (tok, 1, 'M','[')) {
+			f->code = BPF_LD | BPF_MEM;
+			PARSE_OFFSET_OR_FAIL (f->k, tok, 1, 2);
+		}
+	// falling through:
+	case 'i':
+		if (IS_K_TOK (tok, 1)) {
+			f->code = BPF_LD | BPF_IMM;
+			PARSE_K_OR_FAIL (f->k, tok, 1);
+		} else if (tok[0][2] == 'i') {
+			PARSE_FAILURE ("ldi without k");
+		}
+		break;
+	case 'b':
+		f->code = BPF_LD_B;
+		PARSE_IND_ABS_OR_FAIL (f,tok,1);
+		break;
+	case 'h':
+		f->code = BPF_LD_H;
+		PARSE_IND_ABS_OR_FAIL (f,tok,1);
+		break;
+	case 'x':
+		switch (tok[0][3]) {
+		case '\0':
+			f->code = BPF_LDX_W;
+			PARSE_IND_ABS_OR_FAIL (f,tok,1);
+			if (CMP2 (tok, 1, 'M','[')) {
+				f->code = BPF_LDX | BPF_MEM;
+				PARSE_OFFSET_OR_FAIL (f->k, tok, 1, 2);
+			}
+		// falling through:
+		case 'i':
+			if (IS_K_TOK (tok, 1)) {
+				f->code = BPF_LDX | BPF_IMM;
+				PARSE_K_OR_FAIL (f->k, tok, 1);
+			} else if (tok[0][2] == 'i') {
+				PARSE_FAILURE ("ldxi without k");
+			}
+			break;
+		case 'b':
+			f->code = BPF_LDX_B | BPF_MSH;
+			if (sscanf (tok[1], "4*([%d]&0xf)", &f->k) != 1 ) {
+				PARSE_FAILURE ("invalid nibble addressing");
+			}
+
+			break;
+		}
+		break;
+	default:
+		PARSE_FAILURE ("unsupported load instruction");
+	}
+
+	return 0;
+}
+
+static int assemble_j(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS], int count, RBpfSockFilter * f) {
+	int label;
+	ut8 temp;
+	char * end;
+
+	if (CMP4 (tok,0, 'j','m','p','\0') ||
+		CMP3 (tok,0, 'j','a','\0')) {
+		if (count != 2) {
+			PARSE_FAILURE ("jmp invalid argument count");
+		}
+		f->code = BPF_JMP_JA;
+		PARSE_LABEL_OR_FAIL(f->k, tok, 1);
+		return 0;
+	}
+
+	if (CMP4 (tok,0, 'j','n','e','\0') ||
+		CMP4 (tok,0, 'j','n','e','q')) {
+		if (count < 3) {
+			PARSE_FAILURE ("jump invalid argument count");
+		}
+		f->code = BPF_JMP_JEQ;
+		PARSE_JUMP_TARGETS (a, f, tok, count);
+		SWAP_JUMP_TARGETS(f);
+		return 0;
+	}
+
+	if (CMP4 (tok,0, 'j','e','q','\0')) {
+		if (count < 3) {
+			PARSE_FAILURE ("jump invalid argument count");
+		}
+		f->code = BPF_JMP_JEQ;
+		PARSE_JUMP_TARGETS (a, f, tok, count);
+		return 0;
+	}
+
+	if (CMP4 (tok,0, 'j','l','t','\0')) {
+		if (count < 3) {
+			PARSE_FAILURE ("jump invalid argument count");
+		}
+		f->code = BPF_JMP_JGE;
+		PARSE_JUMP_TARGETS (a, f, tok, count);
+		SWAP_JUMP_TARGETS(f);
+		return 0;
+	}
+
+	if (CMP4 (tok,0, 'j','l','e','\0')) {
+		if (count < 3) {
+			PARSE_FAILURE ("jump invalid argument count");
+		}
+		f->code = BPF_JMP_JGT;
+		PARSE_JUMP_TARGETS (a, f, tok, count);
+		SWAP_JUMP_TARGETS(f);
+		return 0;
+	}
+
+	if (CMP4 (tok,0, 'j','g','t','\0')) {
+		if (count < 3) {
+			PARSE_FAILURE ("jump invalid argument count");
+		}
+		f->code = BPF_JMP_JGT;
+		PARSE_JUMP_TARGETS (a, f, tok, count);
+		return 0;
+	}
+
+	if (CMP4 (tok,0, 'j','g','e','\0')) {
+		if (count < 3) {
+			PARSE_FAILURE ("jump invalid argument count");
+		}
+		f->code = BPF_JMP_JGE;
+		PARSE_JUMP_TARGETS (a, f, tok, count);
+		return 0;
+	}
+
+	return -1;
+}
+
+static int assemble_alu(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS], int count, RBpfSockFilter * f) {
+	char *end;
+
+	if (CMP4 (tok,0, 'a','d','d','\0')) {
+		f->code = BPF_ALU_ADD;
+		PARSE_K_OR_X_OR_FAIL (f, tok);
+		return 0;
+	}
+
+	if (CMP4 (tok,0, 's','u','b','\0')) {
+		f->code = BPF_ALU_SUB;
+		PARSE_K_OR_X_OR_FAIL (f, tok);
+		return 0;
+	}
+
+	if (CMP4 (tok,0, 'm','u','l','\0')) {
+		f->code = BPF_ALU_MUL;
+		PARSE_K_OR_X_OR_FAIL (f, tok);
+		return 0;
+	}
+
+	if (CMP4 (tok,0, 'd','i','v','\0')) {
+		f->code = BPF_ALU_DIV;
+		PARSE_K_OR_X_OR_FAIL (f, tok);
+		return 0;
+	}
+
+	if (CMP4 (tok,0, 'm','o','d','\0')) {
+		f->code = BPF_ALU_MOD;
+		PARSE_K_OR_X_OR_FAIL (f, tok);
+		return 0;
+	}
+
+	if (CMP4 (tok,0, 'n','e','g','\0')) {
+		f->code = BPF_ALU_NEG;
+		PARSE_A_OR_X_OR_FAIL (f, tok);
+		return 0;
+	}
+
+	if (CMP4 (tok,0, 'a','n','d','\0')) {
+		f->code = BPF_ALU_AND;
+		PARSE_K_OR_X_OR_FAIL (f, tok);
+		return 0;
+	}
+
+	if (CMP3 (tok,0, 'o','r','\0')) {
+		f->code = BPF_ALU_OR;
+		PARSE_K_OR_X_OR_FAIL (f, tok);
+		return 0;
+	}
+
+	if (CMP4 (tok,0, 'x','o','r','\0')) {
+		f->code = BPF_ALU_XOR;
+		PARSE_K_OR_X_OR_FAIL (f, tok);
+		return 0;
+	}
+
+	if (CMP4 (tok,0, 'l','s','h','\0')) {
+		f->code = BPF_ALU_LSH;
+		PARSE_K_OR_X_OR_FAIL (f, tok);
+		return 0;
+	}
+
+	if (CMP4 (tok,0, 'r','s','h','\0')) {
+		f->code = BPF_ALU_RSH;
+		PARSE_K_OR_X_OR_FAIL (f, tok);
+		return 0;
+	}
+
+	return -1;
+
+}
+
+static int assemble_tok(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS], int count) {
+	char *end;
+	int oplen = 0;
+	RBpfSockFilter f = {0,0,0,0};
+	oplen = strnlen(tok[0], 5);
+
+	if (oplen < 2 || oplen > 4) {
+		PARSE_FAILURE ("mnemonic length not valid");
+	}
+
+	if (CMP4 (tok, 0, 't','x','a','\0')) {
+		if (count != 1) {
+			PARSE_FAILURE ("txa invalid argument count");
+		}
+
+		f.code = BPF_MISC_TXA;
+		COPY_AND_RET (op->buf, &f);
+	}
+
+	if (CMP4 (tok, 0, 't','a','x','\0')) {
+		if (count != 1) {
+			PARSE_FAILURE ("tax invalid argument count");
+		}
+
+		f.code = BPF_MISC_TAX;
+		COPY_AND_RET (op->buf, &f);
+	}
+
+	if (CMP4 (tok, 0, 'r','e','t','\0')) {
+		if (count != 2) {
+			PARSE_FAILURE ("ret invalid argument count");
+		}
+
+		if (IS_K_TOK (tok,1)) {
+			f.code = BPF_RET | BPF_K;
+			PARSE_K_OR_FAIL(f.k, tok,1);
+		} else if (tok[1][0] == 'x') {
+			f.code = BPF_RET | BPF_X;
+		} else if (tok[1][0] == 'a') {
+			f.code = BPF_RET | BPF_A;
+		} else {
+			PARSE_FAILURE ("unsupported ret instruction");
+		}
+		COPY_AND_RET (op->buf, &f);
+	}
+
+	if (CMP2 (tok, 0, 'l','d')) {
+		if (count != 2) {
+			PARSE_FAILURE ("load invalid argument count");
+		}
+
+		if (assemble_ld (a, op, tok, count, &f)) {
+			COPY_AND_RET (op->buf, &f);
+		} else {
+			return -1;
+		}
+	}
+
+	if (CMP2 (tok, 0, 's','t')) {
+		if (count != 2) {
+			PARSE_FAILURE ("store invalid argument count");
+		}
+
+		if (tok[0][2] == '\0') {
+			f.code = BPF_ST;
+		} else if (tok[0][2] == 'x') {
+			f.code = BPF_STX;
+		}
+
+		if (CMP2 (tok, 1, 'M','[')) {
+			PARSE_OFFSET_OR_FAIL (f.k, tok, 1, 2);
+			if (f.k > 15) {
+				PARSE_FAILURE ("mem addressing out of bounds");
+			}
+			COPY_AND_RET (op->buf, &f);
+		} else {
+			PARSE_FAILURE ("invalid store addressing");
+		}
+	}
+
+	if (tok[0][0] == 'j') {
+		if ( assemble_j (a, op, tok, count, &f)) {
+			COPY_AND_RET(op->buf, &f);
+		} else {
+			return -1;
+		}
+	}
+
+	if (assemble_alu (a, op, tok, count, &f)) {
+		if (count != 2) {
+			PARSE_FAILURE ("alu invalid argument count");
+		}
+
+		COPY_AND_RET(op->buf, &f);
+	} else {
+		return -1;
+	}
+
+}
+
+static void lower_op(char *c) {
+	if ((c[0] <= 'Z') && (c[0] >= 'A'))
+		c[0] += 0x20;
+}
+
+static void normalize(char* buf_asm) {
+	int i;
+	if (!buf_asm) return;
+
+	/* this normalization step is largely sub-optimal */
+
+	i = strlen (buf_asm);
+	while (strstr (buf_asm, "  "))
+		r_str_replace_in (buf_asm, (ut32)i, "  ", " ", R_TRUE);
+	r_str_replace_in (buf_asm, (ut32)i, " ,", ",", R_TRUE);
+	r_str_replace_in (buf_asm, (ut32)i, "[ ", "[", R_TRUE);
+	r_str_replace_in (buf_asm, (ut32)i, " ]", "]", R_TRUE);
+	r_str_replace_in (buf_asm, (ut32)i, "( ", "(", R_TRUE);
+	r_str_replace_in (buf_asm, (ut32)i, " )", ")", R_TRUE);
+	r_str_replace_in (buf_asm, (ut32)i, "+ ", "+", R_TRUE);
+	r_str_replace_in (buf_asm, (ut32)i, " +", "+", R_TRUE);
+	r_str_replace_in (buf_asm, (ut32)i, "* ", "*", R_TRUE);
+	r_str_replace_in (buf_asm, (ut32)i, " *", "*", R_TRUE);
+	r_str_replace_in (buf_asm, (ut32)i, "& ", "&", R_TRUE);
+	r_str_replace_in (buf_asm, (ut32)i, " &", "&", R_TRUE);
+	r_str_replace_in (buf_asm, (ut32)i, "%", "", R_TRUE);
+	r_str_do_until_token (lower_op, buf_asm, '\0');
+
+}
+
+
+static int assemble(RAsm *a, RAsmOp *op, const char *buf) {
+	char *tok[PARSER_MAX_TOKENS];
+	char tmp[128];
+	int i, j, l;
+	const char *p = NULL;
+	if (!a || !op || !buf)
+		return 0;
+
+	strncpy (op->buf_asm, buf, R_ASM_BUFSIZE-1);
+	op->buf_asm[R_ASM_BUFSIZE-1] = 0;
+
+	//eprintf("anormal: %s\n", op->buf_asm);
+	normalize(op->buf_asm);
+	//eprintf("normal : %s\n", op->buf_asm);
+
+
+	// tokenization, copied from profile.c
+
+	j = 0;
+	p = op->buf_asm;
+
+	// For every word
+	while (*p) {
+		// Skip the whitespace
+		while (*p == ' ' || *p == '\t')
+			p++;
+		// Skip the rest of the line is a comment is encountered
+		if (*p == ';')
+			while (*p != '\0')
+				p++;
+		// EOL ?
+		if (*p == '\0')
+			break;
+		// Gather a handful of chars
+		// Use isgraph instead of isprint because the latter considers ' ' printable
+		for (i = 0; isgraph ((const unsigned char)*p) && i < sizeof(tmp) - 1;)
+			tmp[i++] = *p++;
+		tmp[i] = '\0';
+		// Limit the number of tokens 
+		if (j > PARSER_MAX_TOKENS - 1)
+			break;
+		// Save the token
+		tok[j++] = strdup (tmp);
+	}
+
+	if (j) {
+		if (assemble_tok(a, op, tok, j) < 0) {
+			return -1;
+		}
+
+		// Clean up
+		for (i = 0; i < j; i++)
+			free(tok[i]);
+	}
+
+	return op->size = 8;
+}
+
+#endif
+
 RAsmPlugin r_asm_plugin_bpf = {
 	.name = "bpf",
 	.desc = "Berkeley Packet Filter disassembler",
 	.license = "GPLv2",
 	.arch = "bpf",
-	.bits = 64,
+	.bits = 32,
 	.disassemble = &disassemble,
-	.assemble = NULL
+	.assemble = NULL//&assemble
 };
 
 #ifndef CORELIB
