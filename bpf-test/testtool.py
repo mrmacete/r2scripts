@@ -22,10 +22,11 @@ class BpfTestValue:
 	 	except:
 	 		self.parsed = None
 
-	 	try:
-	 		self.parsed = to_signed_32(testeval(splitted[1]))
-	 	except:
-	 		self.parsed = None
+	 	if not self.parsed:
+		 	try:
+		 		self.parsed = to_signed_32(testeval(splitted[1]))
+		 	except:
+		 		self.parsed = None
 
 
 	def __repr__(self):
