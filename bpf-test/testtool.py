@@ -2,6 +2,7 @@ import re
 from testeval import *
 import bpftest
 import binascii
+import json
 
 STATE_INIT, STATE_DESCR, STATE_INSN, STATE_FLAGS, STATE_DATA, STATE_TESTS, STATE_FRAG, STATE_PARSED = range(8)
 
@@ -55,6 +56,7 @@ class BpfTest:
 		self._line_counter = -1
 		self._state = STATE_INIT
 		self.broken = False
+		self.asm_test_func = None
 
 	def feed_line(self, line):
 		self._line_counter += 1
@@ -177,6 +179,8 @@ class BpfTest:
 				c.reset()
 			val = c.emulate()[0]
 
+			self.asm_test_func = c.r.cmdj("pdfj @ 0")
+
 			if val != test.parsed:
 				print self.descr + " CODE: " + binascii.hexlify(b''.join(content))
 				print self.descr + " DATA: " + binascii.hexlify(bytearray(d))
@@ -188,6 +192,29 @@ class BpfTest:
 
 
 		return True
+
+
+	def gen_asm_test(self):
+
+		content = []
+		try:
+			for ins in self.compiled:
+				content.append(ins.binarydata())
+		except:
+			print self.descr + " FAIL: error on code data"
+			return []
+
+
+		if self.asm_test_func == None:
+			return []
+
+		tests = []
+		for op in self.asm_test_func["ops"]:
+			if op["opcode"].startswith("j"):
+				continue
+			tests.append((op["opcode"], op["bytes"]))
+
+		return tests
 
 
 def stripcomments(text):
@@ -278,5 +305,38 @@ def run_tests_with_flag(flag):
 	print "failed: %d / %d" % (failed, len(flagged_tests) + len(broken_tests))
 	print "broken: %d / %d" % (len(broken_tests), len(flagged_tests) + len(broken_tests))
 
+	return all_tests
+
+def run_asm_tests_with_flag(flag, all_tests):
+	flagged_tests = []
+	for test in all_tests:
+		try:
+			if test.flags.index(flag) >=0 and not test.broken and not 'FLAG_EXPECTED_FAIL' in test.flags:
+				if test.compile():
+					flagged_tests += test.gen_asm_test()
+		except ValueError:
+			pass
+
+	print "running %d tests with flag \"%s\" ..." % (len(flagged_tests), flag)
+
+	failed = 0
+	succeed = 0
+	c = bpftest.Context("-")
+	for test in flagged_tests:
+		bytecode = c.r.cmd("\"pa " + test[0] + "\"")
+		if bytecode.strip() == test[1]:
+			succeed += 1
+		else:
+			print "\nFAILED: " + test[0] + " - " + bytecode.strip() + " != " + test[1] + "\n"
+			failed += 1
+
+	print "succeed: %d / %d" % (succeed, len(flagged_tests))
+	print "failed: %d / %d" % (failed, len(flagged_tests))
+
+
 if __name__ == "__main__":
-	run_tests_with_flag("CLASSIC")
+	# run test_bpf.c emulation tests:
+	all_tests = run_tests_with_flag("CLASSIC")
+
+	# run "assemble the disassembled" above tests:
+	run_asm_tests_with_flag("CLASSIC", all_tests)
