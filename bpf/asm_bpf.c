@@ -92,7 +92,6 @@ static int disassemble(RAsm *a, RAsmOp *r_op, const ut8 *buf, int len) {
 		op = r_bpf_op_table[BPF_LDX];
 		fmt = "[%d]";
 		break;
-
 	case BPF_LDX_B | BPF_MSH:
 		op = r_bpf_op_table[BPF_LDX_B];
 		fmt = "4*([%d]&0xf)";
@@ -341,8 +340,6 @@ static int disassemble(RAsm *a, RAsmOp *r_op, const ut8 *buf, int len) {
 #define ENFORCE_COUNT_GE(count, n) \
 	if (count < n) PARSE_FAILURE ("invalid argument count, try to omit '#'");
 
-
-
 static int assemble_ld(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS], int count, RBpfSockFilter * f) {
 	char * end;
 
@@ -360,7 +357,6 @@ static int assemble_ld(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS], int co
 			f->code = BPF_LD_W;
 			PARSE_IND_ABS_OR_FAIL (f,tok,1);
 		}
-
 		break;
 	case 'i':
 		if (IS_K_TOK (tok, 1)) {
@@ -407,7 +403,6 @@ static int assemble_ld(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS], int co
 			if (sscanf (tok[1], "4*([%d]&0xf)", &f->k) != 1 ) {
 				PARSE_FAILURE ("invalid nibble addressing");
 			}
-
 			break;
 		}
 		break;
@@ -560,7 +555,6 @@ static int assemble_alu(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS], int c
 	}
 
 	return -1;
-
 }
 
 static int assemble_tok(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS], int count) {
@@ -617,7 +611,6 @@ static int assemble_tok(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS], int c
 			f.code = BPF_STX;
 		}
 
-
 		if (CMP2 (tok, 1, 'm','[')) {
 			PARSE_OFFSET_OR_FAIL (f.k, tok, 1, 2);
 			if (f.k > 15) {
@@ -642,12 +635,12 @@ static int assemble_tok(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS], int c
 	} else {
 		return -1;
 	}
-
 }
 
 static void lower_op(char *c) {
-	if ((c[0] <= 'Z') && (c[0] >= 'A'))
+	if ((c[0] <= 'Z') && (c[0] >= 'A')) {
 		c[0] += 0x20;
+	}
 }
 
 static void normalize(char* buf_asm) {
@@ -657,8 +650,9 @@ static void normalize(char* buf_asm) {
 	/* this normalization step is largely sub-optimal */
 
 	i = strlen (buf_asm);
-	while (strstr (buf_asm, "  "))
+	while (strstr (buf_asm, "  ")) {
 		r_str_replace_in (buf_asm, (ut32)i, "  ", " ", R_TRUE);
+	}
 	r_str_replace_in (buf_asm, (ut32)i, " ,", ",", R_TRUE);
 	r_str_replace_in (buf_asm, (ut32)i, "[ ", "[", R_TRUE);
 	r_str_replace_in (buf_asm, (ut32)i, " ]", "]", R_TRUE);
@@ -682,42 +676,44 @@ static int assemble(RAsm *a, RAsmOp *op, const char *buf) {
 	char tmp[128];
 	int i, j, l;
 	const char *p = NULL;
-	if (!a || !op || !buf)
+	if (!a || !op || !buf) {
 		return 0;
+	}
 
 	strncpy (op->buf_asm, buf, R_ASM_BUFSIZE-1);
 	op->buf_asm[R_ASM_BUFSIZE-1] = 0;
-
-	//eprintf("anormal: %s\n", op->buf_asm);
 	normalize(op->buf_asm);
-	//eprintf("normal : %s\n", op->buf_asm);
-
 
 	// tokenization, copied from profile.c
-
 	j = 0;
 	p = op->buf_asm;
 
 	// For every word
 	while (*p) {
 		// Skip the whitespace
-		while (*p == ' ' || *p == '\t')
+		while (*p == ' ' || *p == '\t') {
 			p++;
+		}
 		// Skip the rest of the line is a comment is encountered
-		if (*p == ';')
-			while (*p != '\0')
+		if (*p == ';') {
+			while (*p != '\0') {
 				p++;
+			}
+		}
 		// EOL ?
-		if (*p == '\0')
+		if (*p == '\0') {
 			break;
+		}
 		// Gather a handful of chars
 		// Use isgraph instead of isprint because the latter considers ' ' printable
-		for (i = 0; isgraph ((const unsigned char)*p) && i < sizeof(tmp) - 1;)
+		for (i = 0; isgraph ((const unsigned char)*p) && i < sizeof(tmp) - 1;) {
 			tmp[i++] = *p++;
+		}
 		tmp[i] = '\0';
 		// Limit the number of tokens 
-		if (j > PARSER_MAX_TOKENS - 1)
+		if (j > PARSER_MAX_TOKENS - 1) {
 			break;
+		}
 		// Save the token
 		tok[j++] = strdup (tmp);
 	}
@@ -728,8 +724,9 @@ static int assemble(RAsm *a, RAsmOp *op, const char *buf) {
 		}
 
 		// Clean up
-		for (i = 0; i < j; i++)
+		for (i = 0; i < j; i++) {
 			free(tok[i]);
+		}
 	}
 
 	return op->size = 8;
