@@ -87,15 +87,15 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
     switch (f->code) {
     case BPF_RET | BPF_A:
         op->type = R_ANAL_OP_TYPE_RET;
-        esilprintf (op, "A,$");
+        esilprintf (op, "A,R0,=,0,$");
         break;
     case BPF_RET | BPF_K:
     case BPF_RET | BPF_X:
         op->type = R_ANAL_OP_TYPE_RET;
         if (BPF_SRC(f->code) == BPF_K ) { 
-            esilprintf (op, "%"PFMT64d",$", f->k);
+            esilprintf (op, "%"PFMT64d",R0,=,0,$", f->k);
         } else if (BPF_SRC(f->code) == BPF_X ) {
-            esilprintf (op, "X,$");
+            esilprintf (op, "X,R0,=,0,$");
         }
         break;
     case BPF_MISC_TAX:
@@ -139,35 +139,35 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
     case BPF_LD_W | BPF_ABS:
         EMIT_LOAD (op, anal->gp + f->k, 4);
         SET_A_DST(op);
-        esilprintf (op, "len,%"PFMT64d",>,?{,0,$,BREAK,},%"PFMT64d",[4],A,=", f->k+4, op->ptr);
+        esilprintf (op, "len,%"PFMT64d",>,?{,0,R0,=,0,$,BREAK,},%"PFMT64d",[4],A,=", f->k+4, op->ptr);
         break;
     case BPF_LD_H | BPF_ABS:
         EMIT_LOAD (op, anal->gp + f->k, 2);
         SET_A_DST(op);
-        esilprintf (op, "len,%"PFMT64d",>,?{,0,$,BREAK,},%"PFMT64d",[2],A,=", f->k+2, op->ptr);
+        esilprintf (op, "len,%"PFMT64d",>,?{,0,R0,=,0,$,BREAK,},%"PFMT64d",[2],A,=", f->k+2, op->ptr);
         break;
     case BPF_LD_B | BPF_ABS:
         EMIT_LOAD (op, anal->gp + f->k, 1);
         SET_A_DST(op);
-        esilprintf (op, "len,%"PFMT64d",>,?{,0,$,BREAK,},%"PFMT64d",[1],A,=", f->k+1, op->ptr);
+        esilprintf (op, "len,%"PFMT64d",>,?{,0,R0,=,0,$,BREAK,},%"PFMT64d",[1],A,=", f->k+1, op->ptr);
         break;
     case BPF_LD_W | BPF_IND:
         op->type = R_ANAL_OP_TYPE_LOAD;
         op->ptrsize = 4;
         SET_A_DST(op);
-        esilprintf (op, "len,%"PFMT64d",X,+,0xffffffff,&,>,?{,0,$,BREAK,},%"PFMT64d",X,+,0xffffffff,&,[4],A,=", (st32)f->k+4, anal->gp + (st32)f->k);
+        esilprintf (op, "len,%"PFMT64d",X,+,0xffffffff,&,>,?{,0,R0,=,0,$,BREAK,},%"PFMT64d",X,+,0xffffffff,&,[4],A,=", (st32)f->k+4, anal->gp + (st32)f->k);
         break;
     case BPF_LD_H | BPF_IND:
         op->type = R_ANAL_OP_TYPE_LOAD;
         op->ptrsize = 2;
         SET_A_DST(op);
-        esilprintf (op, "len,%"PFMT64d",X,+,0xffffffff,&,>,?{,0,$,BREAK,},%"PFMT64d",X,+,0xffffffff,&,[2],A,=", (st32)f->k+2,anal->gp + (st32)f->k);
+        esilprintf (op, "len,%"PFMT64d",X,+,0xffffffff,&,>,?{,0,R0,=,0,$,BREAK,},%"PFMT64d",X,+,0xffffffff,&,[2],A,=", (st32)f->k+2,anal->gp + (st32)f->k);
         break;
     case BPF_LD_B | BPF_IND:
         op->type = R_ANAL_OP_TYPE_LOAD;
         op->ptrsize = 1;
         SET_A_DST(op);
-        esilprintf (op, "len,%"PFMT64d",X,+,0xffffffff,&,>,?{,0,$,BREAK,},%"PFMT64d",X,+,0xffffffff,&,[1],A,=", (st32)f->k+1, anal->gp + (st32)f->k);
+        esilprintf (op, "len,%"PFMT64d",X,+,0xffffffff,&,>,?{,0,R0,=,0,$,BREAK,},%"PFMT64d",X,+,0xffffffff,&,[1],A,=", (st32)f->k+1, anal->gp + (st32)f->k);
         break;
     case BPF_LD | BPF_IMM:
         op->type = R_ANAL_OP_TYPE_MOV;
@@ -346,13 +346,13 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
             op->val = f->k;
             SET_REG_DST_IMM (op, "A", f->k);
             if (f->k == 0) {
-                esilprintf (op, "0,$");
+                esilprintf (op, "0,R0,=,0,$");
             } else {
                 esilprintf (op, "%"PFMT64d",A,/=", f->k);
             }
         } else {
             SET_REG_SRC_DST (op, "X", "A");
-            esilprintf (op, "0,X,==,$z,?{,0,$,BREAK,},X,A,/=");
+            esilprintf (op, "0,X,==,$z,?{,0,R0,=,0,$,BREAK,},X,A,/=");
         }
         break;
     case BPF_ALU_MOD | BPF_X:
@@ -362,13 +362,13 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
             op->val = f->k;
             SET_REG_DST_IMM (op, "A", f->k);
             if (f->k == 0) {
-                esilprintf (op, "0,$");
+                esilprintf (op, "0,R0,=,0,$");
             } else {
                 esilprintf (op, "%"PFMT64d",A,%%=", f->k);
             }
         } else {
             SET_REG_SRC_DST (op, "X", "A");
-            esilprintf (op, "0,X,==,$z,?{,0,$,BREAK,},X,A,%%=");
+            esilprintf (op, "0,X,==,$z,?{,0,R0,=,0,$,BREAK,},X,A,%%=");
         }
         break;
     case BPF_ALU_AND | BPF_X:
@@ -418,9 +418,9 @@ static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
 static int set_reg_profile(RAnal *anal) {
     const char *p =
     "=PC    pc\n"
-    "gpr    A        .32 0   0\n"
-    "gpr    X        .32 4   0\n"
-    "gpr    M[0]     .32 8   0\n"
+    "gpr    A        .32 0    0\n"
+    "gpr    X        .32 4    0\n"
+    "gpr    M[0]     .32 8    0\n"
     "gpr    M[1]     .32 12   0\n"
     "gpr    M[2]     .32 16   0\n"
     "gpr    M[3]     .32 20   0\n"
@@ -437,21 +437,45 @@ static int set_reg_profile(RAnal *anal) {
     "gpr    M[14]    .32 64   0\n"
     "gpr    M[15]    .32 68   0\n"
     "gpr    pc       .32 72   0\n"
-    "gpr    len      .32 76   0\n";
+    "gpr    len      .32 76   0\n"
+    "gpr    R0       .32 80   0\n"
+    "gpr    R1       .32 84   0\n"
+    "gpr    R2       .32 88   0\n"
+    "gpr    R3       .32 92   0\n"
+    "gpr    R4       .32 96   0\n"
+    "gpr    R5       .32 100  0\n";
     return r_reg_set_profile_string (anal->reg, p);
 }
 
-static int bpf_esil_int(RAnalEsil *esil, int interrupt) {
+static int bpf_int_exit(RAnalEsil *esil, int interrupt) {
 
-    if (interrupt == 0 ){
-        esil->anal->cb_printf ("; BPF result: DROP value: %d\n", interrupt);
-        eprintf("BPF result: DROP value: %d\n", interrupt);
+    int syscall;
+    ut64 r0;
+    if (!esil || (interrupt != 0x0))
+        return false;
+    r_anal_esil_reg_read (esil, "R0", &r0, NULL);
+    if (r0 == 0 ){
+        esil->anal->cb_printf ("; BPF result: DROP value: %d\n", (int)r0);
+        eprintf("BPF result: DROP value: %d\n", (int)r0);
     } else {
-        esil->anal->cb_printf ("; BPF result: ACCEPT value: %d\n", interrupt);
-        eprintf("BPF result: ACCEPT value: %d\n", interrupt);
+        esil->anal->cb_printf ("; BPF result: ACCEPT value: %d\n", (int)r0);
+        eprintf("BPF result: ACCEPT value: %d\n", (int)r0);
     }
-    return 1;
+    return true;
 }
+
+
+static int esil_bpf_init (RAnalEsil *esil) {
+    if (!esil) return false;
+    // XXX. this is arbitrary!!
+    r_anal_esil_set_interrupt (esil, 0x0, bpf_int_exit);
+    return true;
+}
+
+static int esil_bpf_fini (RAnalEsil *esil) {
+    return true;
+}
+
 
 struct r_anal_plugin_t r_anal_plugin_bpf = {
     .name = "bpf",
@@ -488,11 +512,11 @@ struct r_anal_plugin_t r_anal_plugin_bpf = {
     .post_anal = NULL,
     .revisit_bb_anal = NULL,
     .cmd_ext = NULL,
-    .esil_init = NULL,
+    .esil_init = &esil_bpf_init,
     .esil_post_loop = NULL,
-    .esil_intr = &bpf_esil_int,
+    .esil_intr = NULL,
     .esil_trap = NULL,
-    .esil_fini = NULL
+    .esil_fini = &esil_bpf_init
 
 };
 
