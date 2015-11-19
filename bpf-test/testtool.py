@@ -160,7 +160,7 @@ class BpfTest:
 			print self.descr + " - cannot parse data"
 			return [0] * dlen
 
-	def run(self):
+	def run(self, c):
 		content = []
 		try:
 			for ins in self.compiled:
@@ -169,12 +169,11 @@ class BpfTest:
 			print self.descr + " FAIL: error on code data"
 			return False
 
-		c = bpftest.Context(filename = "malloc://2048", filecontent = binascii.hexlify(b''.join(content)))
+		c.filecontent = binascii.hexlify(b''.join(content))
 		for test in self.tests:
 			d = self.get_data_for_len(test.len)
 			if len(d) > 0:
 				c.set_packet_data(binascii.hexlify(bytearray(d)))
-
 			else:
 				c.reset()
 			val = c.emulate()[0]
@@ -292,11 +291,13 @@ def run_tests_with_flag(flag):
 	print '\n'.join(['\t'+v for v in unsupported_values])
 	print "running %d tests with flag \"%s\" ..." % (len(flagged_tests), flag)
 
+	c = bpftest.Context(filename = "malloc://2048")
+	
 	failed = 0
 	succeed = 0
 	for test in flagged_tests:
 		if test.compile ():
-			if test.run():
+			if test.run(c):
 				succeed += 1
 			else:
 				failed += 1
@@ -312,7 +313,7 @@ def run_asm_tests_with_flag(flag, all_tests):
 	for test in all_tests:
 		try:
 			if test.flags.index(flag) >=0 and not test.broken and not 'FLAG_EXPECTED_FAIL' in test.flags:
-				if test.compile():
+				if len(test.compiled) > 0:
 					flagged_tests += test.gen_asm_test()
 		except ValueError:
 			pass

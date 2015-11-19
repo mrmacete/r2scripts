@@ -14,6 +14,8 @@ class Context:
 		self.r = r2pipe.open(filename)
 		self.r.cmd("e io.cache = true")
 		self.r.cmd("e asm.arch = bpf")
+		self.inited = False
+
 		if filecontent != None:
 			self.filecontent = filecontent
 			self.inject_filecontent()
@@ -25,18 +27,33 @@ class Context:
 		self.r.cmd("e cfg.bigendian=true")
 		self.r.cmd("aaa")
 
+
+
 	def inject_filecontent(self):
 		if self.filecontent != None:
-			# filecontent must be hexlified
+			# filecontent must be already hexlified
 			clen = len(self.filecontent) / 2
 			self.r.cmd("S %d %d %d %d code mrwx" % (0, 0, clen, clen))
 			self.r.cmd("wx " + self.filecontent)
 			self.gp = clen
+			self.r.cmd("e anal.gp = " + str(self.gp))
+			self.r.cmd("aaa")
 
 	def reset(self):
-		self.r.cmd("S-")
+		if self.inited:
+			self.r.cmd("f--")
+			self.r.cmd("af-")
+			self.r.cmd("S-*")
+			self.r.cmd("aei-")
+			self.r.cmd("aeim-")
 		self.r.cmd("s 0")
+		self.r.cmd("ar0")
+		self.r.cmd("aeim")
+		self.r.cmd("aei")
+		self.r.cmd("aeip")
+		self.inited = True
 		self.inject_filecontent()
+
 
 	def set_packet_data(self, packet):
 		self.reset()
@@ -48,7 +65,7 @@ class Context:
 		self.r.cmd("s 0")
 
 	def emulate(self):
-		self.r.cmd("aei-")
+		#self.r.cmd("ar0")
 		self.r.cmd("s 0")
 
 		result = self.r.cmd("aecu " + str(self.gp))
