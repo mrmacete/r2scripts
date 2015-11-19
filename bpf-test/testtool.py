@@ -265,7 +265,7 @@ def parse_test_bpf_c(fileName):
 	return tests
 
 
-def run_tests_with_flag(flag):
+def run_tests_with_flag(flag, c):
 	all_tests = parse_test_bpf_c ("test_bpf.c")
 	print "found %d tests" % len(all_tests)
 
@@ -290,8 +290,6 @@ def run_tests_with_flag(flag):
 	print "WARNING: found %d unsupported test values:" % len(unsupported_values)
 	print '\n'.join(['\t'+v for v in unsupported_values])
 	print "running %d tests with flag \"%s\" ..." % (len(flagged_tests), flag)
-
-	c = bpftest.Context(filename = "malloc://2048")
 	
 	failed = 0
 	succeed = 0
@@ -308,7 +306,7 @@ def run_tests_with_flag(flag):
 
 	return all_tests
 
-def run_asm_tests_with_flag(flag, all_tests):
+def run_asm_tests_with_flag(flag, c, all_tests):
 	flagged_tests = []
 	for test in all_tests:
 		try:
@@ -322,7 +320,6 @@ def run_asm_tests_with_flag(flag, all_tests):
 
 	failed = 0
 	succeed = 0
-	c = bpftest.Context("-")
 	for test in flagged_tests:
 		bytecode = c.r.cmd("\"pa " + test[0] + "\"")
 		if bytecode.strip() == test[1]:
@@ -336,8 +333,10 @@ def run_asm_tests_with_flag(flag, all_tests):
 
 
 if __name__ == "__main__":
+	c = bpftest.Context(filename = "malloc://2048")
+
 	# run test_bpf.c emulation tests:
-	all_tests = run_tests_with_flag("CLASSIC")
+	all_tests = run_tests_with_flag("CLASSIC", c)
 
 	# run "assemble the disassembled" above tests:
-	run_asm_tests_with_flag("CLASSIC", all_tests)
+	run_asm_tests_with_flag("CLASSIC", c, all_tests)
