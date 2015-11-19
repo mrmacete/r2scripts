@@ -253,8 +253,8 @@ static int disassemble(RAsm *a, RAsmOp *r_op, const ut8 *buf, int len) {
 	memcpy(a, b, sizeof(*b));\
 	return 0;
 
-#define PARSE_FAILURE(message) \
-	{ eprintf("PARSE FAILURE: "message"\n");\
+#define PARSE_FAILURE(message, arg...) \
+	{ eprintf("PARSE FAILURE: "message"\n", ##arg);\
 	return -1;}
 
 #define CMP4(tok, n, x, y, z, w) \
@@ -280,7 +280,9 @@ static int disassemble(RAsm *a, RAsmOp *r_op, const ut8 *buf, int len) {
 	dst = (tok[n][0] == 'l') ? \
 		strtoul (&tok[n][1], &end, 10) << 3 : \
 		strtoul (&tok[n][0], &end, 0);\
-	if (*end != '\0' && *end != ',') PARSE_FAILURE ("could not parse label");
+	if (*end != '\0' && *end != ',') {\
+		PARSE_FAILURE ("could not parse label: %s", tok[n]);\
+	} 
 
 #define PARSE_OFFSET_OR_FAIL(dst, tok,n,off) \
 	dst = strtoul (&tok[n][off], &end, 10);\
@@ -319,14 +321,14 @@ static int disassemble(RAsm *a, RAsmOp *r_op, const ut8 *buf, int len) {
 
 #define PARSE_JUMP_TARGETS(a, f, tok, count) \
 	PARSE_K_OR_X_OR_FAIL (f, tok);\
-	if (count == 3) {\
+	if (count >= 3) {\
 		PARSE_LABEL_OR_FAIL (label, tok, 2);\
-		f->jt = (label - a->pc) >> 3;\
+		f->jt = (st64)(label - a->pc - 8) / 8;\
 		f->jf = (a->pc >> 3) + 1;\
 	}\
-	if ( count == 4) {\
+	if (count == 4) {\
 		PARSE_LABEL_OR_FAIL (label, tok, 3);\
-		f->jf = (label - a->pc) >> 3;\
+		f->jf = (st64)(label - a->pc - 8) / 8;\
 	}
 
 #define SWAP_JUMP_TARGETS(f) \
@@ -340,7 +342,8 @@ static int disassemble(RAsm *a, RAsmOp *r_op, const ut8 *buf, int len) {
 #define ENFORCE_COUNT_GE(count, n) \
 	if (count < n) PARSE_FAILURE ("invalid argument count, try to omit '#'");
 
-static int assemble_ld(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS], int count, RBpfSockFilter * f) {
+static int assemble_ld(RAsm *a, RAsmOp *op, 
+	char *tok[PARSER_MAX_TOKENS], int count, RBpfSockFilter * f) {
 	char * end;
 
 	switch (tok[0][2]) {
@@ -413,7 +416,8 @@ static int assemble_ld(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS], int co
 	return 0;
 }
 
-static int assemble_j(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS], int count, RBpfSockFilter * f) {
+static int assemble_j(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS], 
+	int count, RBpfSockFilter * f) {
 	int label;
 	ut8 temp;
 	char * end;
@@ -475,9 +479,10 @@ static int assemble_j(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS], int cou
 	return -1;
 }
 
-static int assemble_alu(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS], int count, RBpfSockFilter * f) {
+static int assemble_alu(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS], 
+	int count, RBpfSockFilter * f) {
 	char *end;
-
+	
 	if (CMP4 (tok,0, 'a','d','d','\0')) {
 		ENFORCE_COUNT(count, 2);
 		f->code = BPF_ALU_ADD;
@@ -557,7 +562,8 @@ static int assemble_alu(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS], int c
 	return -1;
 }
 
-static int assemble_tok(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS], int count) {
+static int assemble_tok(RAsm *a, RAsmOp *op, 
+	char *tok[PARSER_MAX_TOKENS], int count) {
 	char *end;
 	int oplen = 0;
 	RBpfSockFilter f = {0,0,0,0};

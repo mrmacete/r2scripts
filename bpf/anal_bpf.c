@@ -14,14 +14,13 @@
 
 #define EMIT_CJMP(op, addr, f) \
 	(op)->type =  R_ANAL_OP_TYPE_CJMP;\
-	(op)->jump = (addr) + 8 + (f)->jt * 8;\
-	(op)->fail = (addr) + 8 + (f)->jf * 8;
+	(op)->jump = (addr) + 8 + (st8)(f)->jt * 8;\
+	(op)->fail = (addr) + 8 + (st8)(f)->jf * 8;
 
 #define EMIT_LOAD(op, addr, size) \
 	(op)->type = R_ANAL_OP_TYPE_LOAD;\
 	(op)->ptr = (addr);\
 	(op)->ptrsize = (size);
-
 
 #define NEW_SRC_DST(op) \
 	(op)->src[0] = r_anal_value_new ();\
@@ -68,7 +67,8 @@ static const char* M[] = {
 	"M[15]"
 };
 
-static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int len) {
+static int bpf_anal(RAnal *anal, RAnalOp *op, ut64 addr, 
+	const ut8 *data, int len) {
 	RBpfSockFilter * f = (RBpfSockFilter*) data;
 	memset (op, '\0', sizeof (RAnalOp));
 	op->jump = UT64_MAX;
