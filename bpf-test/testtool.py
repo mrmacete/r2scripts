@@ -13,6 +13,17 @@ def to_signed_32(n):
 		return n - 0x100000000 
 	return n
 
+def num_to_letter(astr):
+	l33t = 'OIZEASGTBP'
+
+	res = []
+	for c in astr:
+		if c.isdigit():
+			res.append(l33t[int(c,10)])
+		else:
+			res.append(c)
+	return ''.join(res)
+
 class BpfTestValue:	
 	def __init__(self, rawtest):
 		splitted = [e.strip("{ }\n\r") for e in rawtest.strip("{ }\n\r").split(",")]
@@ -195,15 +206,6 @@ class BpfTest:
 
 	def gen_asm_test(self):
 
-		content = []
-		try:
-			for ins in self.compiled:
-				content.append(ins.binarydata())
-		except:
-			print self.descr + " FAIL: error on code data"
-			return []
-
-
 		if self.asm_test_func == None:
 			return []
 
@@ -214,6 +216,45 @@ class BpfTest:
 			tests.append((op["opcode"], op["bytes"]))
 
 		return tests
+
+	def gen_asm_total_test(self):
+
+		if self.asm_test_func == None:
+			return []
+
+		used_labels = set()
+		asm = []
+		bytez = []
+		for op in self.asm_test_func["ops"]:
+			oc = op["opcode"].replace("#","")
+			if oc.startswith("j"):
+				soc = oc.split(" ")
+				for i in xrange(2,len(soc)):
+					try:
+						comma = ""
+						if soc[i].find(',') >= 0:
+							comma = ","
+
+						lab = "label%04d" % int(soc[i].replace(',',''),0)
+						soc[i] = lab + comma
+						used_labels.add( lab + ":" )
+					except:
+						pass
+
+				oc = " ".join(soc)
+
+			asm.append("label%04d:" % op["offset"])
+			asm.append(oc)
+			bytez.append(op["bytes"])
+
+		filtered_asm = []
+		for aasm in asm:
+			if aasm.startswith("label"):
+				if aasm not in used_labels:
+					continue
+			filtered_asm.append(aasm)
+
+		return (';'.join(filtered_asm), ''.join(bytez))
 
 
 def stripcomments(text):
@@ -331,6 +372,31 @@ def run_asm_tests_with_flag(flag, c, all_tests):
 	print "succeed: %d / %d" % (succeed, len(flagged_tests))
 	print "failed: %d / %d" % (failed, len(flagged_tests))
 
+def run_asm_total_tests_with_flag(flag, c, all_tests):
+	flagged_tests = []
+	for test in all_tests:
+		try:
+			if test.flags.index(flag) >=0 and not test.broken and not 'FLAG_EXPECTED_FAIL' in test.flags:
+				if len(test.compiled) > 0:
+					flagged_tests.append (test.gen_asm_total_test())
+		except ValueError:
+			pass
+
+	print "running %d tests with flag \"%s\" ..." % (len(flagged_tests), flag)
+
+	failed = 0
+	succeed = 0
+	for test in flagged_tests:
+		bytecode = c.r.cmd("\"pa " + test[0] + "\"")
+		if bytecode.strip() == test[1]:
+			succeed += 1
+		else:
+			print "\nFAILED:\n" + test[0].replace(';','\n') + "\n" + bytecode.strip() + "\n!=\n" + test[1] + "\n"
+			failed += 1
+
+	print "succeed: %d / %d" % (succeed, len(flagged_tests))
+	print "failed: %d / %d" % (failed, len(flagged_tests))
+
 
 if __name__ == "__main__":
 	c = bpftest.Context(filename = "malloc://2048")
@@ -338,5 +404,9 @@ if __name__ == "__main__":
 	# run test_bpf.c emulation tests:
 	all_tests = run_tests_with_flag("CLASSIC", c)
 
-	# run "assemble the disassembled" above tests:
+	# run "assemble the disassembled line by line" above tests:
 	run_asm_tests_with_flag("CLASSIC", c, all_tests)
+
+	# run "assemble the disassembled total" above tests:
+	run_asm_total_tests_with_flag("CLASSIC", c, all_tests)
+

@@ -277,11 +277,9 @@ static int disassemble(RAsm *a, RAsmOp *r_op, const ut8 *buf, int len) {
 	if (*end != '\0' && *end != ',' ) PARSE_FAILURE ("could not parse k");\
 
 #define PARSE_LABEL_OR_FAIL(dst, tok, n) \
-	dst = (tok[n][0] == 'l') ? \
-		strtoul (&tok[n][1], &end, 10) << 3 : \
-		strtoul (&tok[n][0], &end, 0);\
+	dst = strtoul (&tok[n][0], &end, 0);\
 	if (*end != '\0' && *end != ',') {\
-		PARSE_FAILURE ("could not parse label: %s", tok[n]);\
+		return -1;\
 	} 
 
 #define PARSE_OFFSET_OR_FAIL(dst, tok,n,off) \
@@ -304,16 +302,16 @@ static int disassemble(RAsm *a, RAsmOp *r_op, const ut8 *buf, int len) {
 	if (IS_K_TOK (tok, 1)) {\
 		PARSE_K_OR_FAIL (f->k, tok, 1);\
 		f->code = f->code | BPF_K;\
-	} else if (CMP2 (tok,1, 'x','\0')) {\
+	} else if (tok[1][0] == 'x' && (tok[1][1] == '\0' || tok[1][1] == ',')) {\
 		f->code = f->code | BPF_X;\
 	} else {\
-		PARSE_FAILURE ("could not parse k or x");\
+		PARSE_FAILURE ("could not parse k or x: %s", tok[1]);\
 	}
 
 #define PARSE_A_OR_X_OR_FAIL(f, tok) \
-	if (CMP2 (tok,1, 'x','0')) {\
+	if (tok[1][0] == 'x' && (tok[1][1] == '\0' || tok[1][1] == ',')) {\
 		f->code = f->code | BPF_X;\
-	} else if (CMP2 (tok,1, 'a','0')) {\
+	} else if (tok[1][0] == 'a' && (tok[1][1] == '\0' || tok[1][1] == ',')) {\
 		f->code = f->code | BPF_A;\
 	} else {\
 		PARSE_FAILURE ("could not parse a or x");\
@@ -475,6 +473,14 @@ static int assemble_j(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS],
 		PARSE_JUMP_TARGETS (a, f, tok, count);
 		return 0;
 	}
+
+	if (CMP4 (tok,0, 'j','s','e','t')) {
+		ENFORCE_COUNT_GE(count, 3);
+		f->code = BPF_JMP_JSET;
+		PARSE_JUMP_TARGETS (a, f, tok, count);
+		return 0;
+	}
+
 
 	return -1;
 }
