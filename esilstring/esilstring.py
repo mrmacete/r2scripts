@@ -25,9 +25,9 @@ def esil_parse_dst( esil ):
 class ESILString:
 
 	dump_commands = False
-	debug_log = False
+	debug_log = True
 	total_count = 0
-	include_flagspaces = set(["str."])
+	include_flagspaces = set(["str.", "sym."])
 	exclude_flagspaces = set()
 
 	def __init__(self, r):
@@ -52,11 +52,14 @@ class ESILString:
 	def init_gp( self ):
 		self.cmd("aaa")
 		self.cmd("fs sections")
+		self.cmd("e asm.relsub = true")
 		self.cmd("e anal.gp=`? (section..got+0x7ff0)~[1]`")
 		self.cmd("f gp=`? (section..got+0x7ff0)~[1]`")
 		self.cmd("fs *")
 		self.cmd("aaa")
-		print "Canonical gp value: " + self.cmd("?v gp")
+		self.cmd("aae")
+		self.gp = self.cmd("?v gp")
+		print "Canonical gp value: " + self.gp
 
 
 	def init_flags( self ):
@@ -72,13 +75,33 @@ class ESILString:
 			else:
 				self.flags[off] = [f]
 
+	def merge_sections(self, xsex, tolerance):
+
+		result = []
+		current = None
+
+		for sec in xsex:
+			if current != None and (sec[0] - (current[0] + current[1])) <= tolerance:
+				current[1] += (sec[0] - (current[0] + current[1])) + sec[1]
+				current[2] = current[2] + "+" + sec[2]
+			else:
+				if current != None:
+					result.append(current)
+				current = list(sec)
+
+		if current != None:
+			result.append (current)
+
+		return result
 
 	def emulate_functions(self):
 
 		flags = self.cmdj("fj")
 
-		xsex = [(f["offset"], int(f["size"]), f["name"]) for f in flags if f["name"].startswith("fcn.") or (f["name"].startswith("sym.") and not f["name"].startswith("sym.imp."))]
+		xsex = [(f["offset"], int(f["size"]), f["name"]) for f in flags if f["name"].startswith("fcn.") or f["name"].startswith("loc.") or (f["name"].startswith("sym.") and not f["name"].startswith("sym.imp."))]
 
+		xsex.sort(key=lambda x: x[0])
+		xsex = self.merge_sections(xsex, 0)
 
 		for sec in xsex:
 			self.emulate_from_to(sec[0], sec[0]+sec[1], sec[2])
@@ -92,8 +115,6 @@ class ESILString:
 		else:
 			print "emulating from " + hex(from_addr) + " to " + hex(to_addr) + " ..."
 
-
-		
 		addr = from_addr
 		while addr < to_addr:
 			self.cmd("s " + str(addr))
@@ -109,8 +130,6 @@ class ESILString:
 
 				self.cmd("aesl")
 
-				addr += o[0]["size"]
-
 				if "esil" in o[0]:
 					dst = esil_parse_dst(o[0]["esil"])
 					if dst != False:
@@ -124,6 +143,8 @@ class ESILString:
 					self.dlog( "no esil for: " + o[0]["opcode"] )
 				else:
 					self.dlog( "no esil for this: " + str(o[0]))
+
+				addr += o[0]["size"]
 			else:
 
 				self.dlog("skipping invalid at " + hex(addr))
@@ -133,6 +154,8 @@ class ESILString:
 			self.cmd("aei-")
 			self.cmd("aeim-")
 			self.cmd("aek-")
+			self.cmd("ar0")
+			self.cmd("dr gp=" + self.gp)
 
 		
 
