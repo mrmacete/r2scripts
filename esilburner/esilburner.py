@@ -56,11 +56,23 @@ class EsilBurner:
         self.cmd("aap")
 
     def initial_setup(self):
-        self.cmd("e anal.gp=`? (section..got+0x7ff0)~[1]`")
-        self.cmd("f loc._gp=`? (section..got+0x7ff0)~[1]`")
-        self.cmd("(pdfmips at,ar gp=loc._gp,af @$0,ar t9=$0,pdf @$0)")
+
+        try:
+            self.arch = self.cmd('i~arch[1]').strip()
+        except:
+            self.arch = ''
+
+        print "arch is '" + self.arch + "'"
+
+        if self.arch == 'mips':
+            self.cmd("e anal.gp=`? (section..got+0x7ff0)~[1]`")
+            self.cmd("f loc._gp=`? (section..got+0x7ff0)~[1]`")
+            self.cmd("(pdfmips at,ar gp=loc._gp,ar t9=$0,pdf @$0)")
+            self.cmd("e anal.prelude=3c1c") # mips prelude "lui gp, *"
+        else:
+            self.cmd("(pdfmips at,pdf @$0)")
+
         self.cmd("aa")
-        self.cmd("e anal.prelude=3c1c") # mips prelude "lui gp, *"
         self.cmd("aap")
         print "code coverage: " + self.cmd('aai~percent[1]')
 
