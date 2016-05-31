@@ -4,6 +4,7 @@
 import r2pipe
 import json
 import re
+import sys
 from cStringIO import StringIO
 
 xtract = re.compile('^(0x[0-9a-fA-F]*)[^;]*;(.*)$')
@@ -25,6 +26,7 @@ class EsilBurner:
     reference_flags = ['str.', 'obj.', 'sym.', 'fcn.']
     dump_commands = False
     auto_reference = False
+    single_shot = None
 
     def __init__(self, r, options={}):
         self.r = r
@@ -32,6 +34,8 @@ class EsilBurner:
             self.emulate_flags = options['emulate_flags']
         if 'auto_reference' in options:
             self.auto_reference = options['auto_reference']
+        if 'single_shot' in options:
+            self.single_shot = options['single_shot']
 
         self.initial_setup()
 
@@ -70,12 +74,22 @@ class EsilBurner:
         else:
             self.cmd("(pdfmips at,pdf @$0)")
 
-        self.cmd("aa")
-        self.cmd("aap")
+        if self.single_shot != None:
+            self.cmd("af @ " + self.single_shot)
+        else:
+            self.cmd("aa")
+            self.cmd("aap")
+            self.cmd("aa")
+
+
         print "code coverage: " + self.cmd('aai~percent[1]')
 
 
     def flags_to_emulate(self):
+
+        if self.single_shot != None:
+            return [self.single_shot]
+
         raw = self.cmdj("fj")
 
         def flagtest(f):
@@ -83,7 +97,7 @@ class EsilBurner:
                 if f.startswith(tf):
                     return True
             return False
-        return [f for f in raw if flagtest(f['name'])]
+        return [f['name'] for f in raw if flagtest(f['name'])]
 
     def sanitize_command(self, command):
         return re.sub(blacks, '_', command).replace(';', '')
@@ -125,8 +139,8 @@ class EsilBurner:
         self.cmd("aeim 0x100000 0x300000")
 
         for f in self.flags_to_emulate():
-            print "emulating " + f['name'] + ' ...'
-            lines = self.cmd(".(pdfmips " + f['name'] + ")")
+            print "emulating " + f + ' ...'
+            lines = self.cmd(".(pdfmips " + f + ")")
             self.burn_emu_lines(lines)
 
         self.cmd("e scr.color=true")
@@ -138,7 +152,12 @@ class EsilBurner:
 
 if __name__ == '__main__':
     r = r2pipe.open("#!pipe")
-    ms = EsilBurner(r, {
-    	"auto_reference": True
-    	})
+    options = {
+        "auto_reference": True
+        }
+
+    if len(sys.argv) > 1:
+        options['single_shot'] = sys.argv[1]
+
+    ms = EsilBurner(r, options)
     ms.burn_emu_comments()
