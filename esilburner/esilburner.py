@@ -62,8 +62,6 @@ class EsilBurner:
         except:
             self.arch = ''
 
-        print "arch is '" + self.arch + "'"
-
         if self.arch == 'mips':
             self.cmd("e anal.gp=`? (section..got+0x7ff0)~[1]`")
             self.cmd("f loc._gp=`? (section..got+0x7ff0)~[1]`")
