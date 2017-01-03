@@ -5,7 +5,7 @@ CFLAGS=-g -fPIC
 CFLAGS+=-I$(R2_INCLUDE_PATH)
 SUDO=sudo
 
-LDFLAGS=-shared -L$(R2_LIB_PATH) -lr_util -lr_parse -lr_db -lr_syscall
+LDFLAGS=-shared -L$(R2_LIB_PATH) -lr_util -lr_parse -lr_syscall
 
 EXT_SO=$(shell r2 -hh|grep LIBEXT|awk '{print $$2}')
 
