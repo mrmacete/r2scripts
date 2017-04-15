@@ -46,7 +46,7 @@ static RBinInfo* info(RBinFile *arch) {
 	return ret;
 }
 
-static int load(RBinFile *arch) {
+static bool load(RBinFile *arch) {
 	return true;
 }
 
@@ -68,7 +68,6 @@ struct r_bin_plugin_t r_bin_plugin_bpf = {
 	.load = &load,
 	.load_bytes = NULL,
 	.destroy = &destroy,
-	.check = NULL,
 	.baddr = &baddr,
 	.boffset = NULL,
 	.binsym = NULL,
