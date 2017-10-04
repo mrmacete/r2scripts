@@ -1,2 +1,2 @@
-bpf/*.dylib
-bpf/*.dylib.dSYM
+*.dylib
+*.dylib.dSYM
