@@ -37,7 +37,7 @@ static RBinInfo *info(RBinFile *arch) {
 	}
 	ret->file = strdup (arch->file);
 	ret->type = strdup ("ggpack");
-	ret->has_va = 0;// 1;
+	ret->has_va = 0;
 	return ret;
 }
 
@@ -114,7 +114,7 @@ static RList* sections(RBinFile *arch) {
 	return result;
 }
 
-RBinPlugin r_bin_plugin_avr = {
+RBinPlugin r_bin_plugin_ggpack = {
 	.name = "ggpack",
 	.desc = "ggpack bin goodies",
 	.license = "MIT",
@@ -130,7 +130,7 @@ RBinPlugin r_bin_plugin_avr = {
 #ifndef CORELIB
 RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_BIN,
-	.data = &r_bin_plugin_avr,
+	.data = &r_bin_plugin_ggpack,
 	.version = R2_VERSION
 };
 #endif
