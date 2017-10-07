@@ -12,6 +12,9 @@
 
 static bool check_bytes(const ut8 *b, ut64 length) {
 	ut32 index_offset = r_read_le32 (b);
+	if (index_offset >= length) {
+		return false;
+	}
 	ut32 index_magic = r_read_be32 (b + index_offset);
 	if (index_magic != 0x01020304) {
 		return false;
