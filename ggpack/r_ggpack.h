@@ -20,6 +20,7 @@ typedef struct {
 	ut32 version;
 	ut32 index_offset;
 	ut32 index_size;
+    ut32 offset;
 } RIOGGPack;
 
 #endif

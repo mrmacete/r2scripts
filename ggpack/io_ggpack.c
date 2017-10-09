@@ -26,9 +26,15 @@ static const ut8 magic_bytes[BRUTE_VERSIONS][16] = {
 };
 
 #define HAS_GG_INDEX_HEADER(x) (x[0] == 1 && x[1] == 2 && x[2] == 3 && x[3] == 4)
+#define CURRENT_SIZE(rg) (\
+	rg->index->entries[rg->index->length-1]->offset +\
+	rg->index->entries[rg->index->length-1]->size\
+)
 
-static int r_io_ggpack_read_entry(RIOGGPack *rg, RIO *io, RIODesc *fd, ut8 *buf, int count, RGGPackIndexEntry * entry);
-static int r_io_ggpack_write_entry(RIOGGPack *rg, RIO *io, RIODesc *fd, const ut8 *buf, int count, RGGPackIndexEntry * entry);
+
+static int r_io_ggpack_read_entry(RIOGGPack *rg, ut32 read_start, ut8 *buf, int count, RGGPackIndexEntry * entry);
+static int r_io_ggpack_write_entry(RIOGGPack *rg, ut32 write_start, const ut8 *buf, int count, RGGPackIndexEntry * entry);
+static bool r_io_ggpack_resize_entry(RIOGGPack *rg, RIO *io, RIODesc * fd, st64 delta, int i);
 static bool r_io_ggpack_create_index(RIOGGPack *rg);
 
 static RGGPackIndexEntry *r_ggpack_entry_new(char * name, ut32 offset, ut32 size);
@@ -45,6 +51,9 @@ static void gg_obfuscate(RIOGGPack *rg, ut8 * out_buffer, ut8 *buffer,
 			   ut32 key_offset, ut32 key_size, ut32 buf_offset, ut32 buf_size);
 static char * r_ggpack_read_str(ut8 * index_buffer, ut32 offset);
 static ut32 fread_le32(FILE *f);
+
+static int __read_internal(RIOGGPack * rg, ut32 read_start, ut8 * buf, int count);
+static int __write_internal(RIOGGPack * rg, ut32 write_start, const ut8 *buf, int count);
 
 static RIOGGPack *r_io_ggpack_new(void) {
 	RIOGGPack *rg = R_NEW0 (RIOGGPack);
@@ -136,42 +145,21 @@ static int __read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
 	}
 	rg = fd->data;
 
-	int i = R_MAX (0, r_ggpack_index_search(rg->index, io->off));
+	ut32 read_start = io->off;
+	return __read_internal (rg, read_start, buf, count);
+}
+
+static int __read_internal(RIOGGPack * rg, ut32 read_start, ut8 * buf, int count) {
+	int i = R_MAX (0, r_ggpack_index_search(rg->index, read_start));
 
 	RGGPackIndexEntry * entry;
 	do {
 		entry = rg->index->entries[i];
-		r_io_ggpack_read_entry (rg, io, fd, buf, count, entry);
+		r_io_ggpack_read_entry (rg, read_start, buf, count, entry);
 		i++;
-	} while ((i < rg->index->length) && (entry->offset + entry->size) < (io->off + count));
+	} while ((i < rg->index->length) && (entry->offset + entry->size) < (read_start + count));
 
 	return count;
-}
-
-static ut64 __lseek(RIO *io, RIODesc *fd, ut64 offset, int whence) {
-	RIOGGPack *rg = NULL;
-
-	if (!fd || !fd->data) {
-		return io->off;
-	}
-
-	rg = fd->data;
-
-	switch (whence) {
-	case SEEK_SET:
-		io->off = offset;
-		break;
-	case SEEK_CUR:
-		io->off += (int) offset;
-		break;
-	case SEEK_END:
-		{
-			RGGPackIndexEntry * lastEntry = rg->index->entries[rg->index->length-1];
-			io->off = lastEntry->offset + lastEntry->size;
-			break;
-		}
-	}
-	return io->off;
 }
 
 static int __write(RIO *io, RIODesc *fd, const ut8 *buf, int count) {
@@ -181,20 +169,78 @@ static int __write(RIO *io, RIODesc *fd, const ut8 *buf, int count) {
 	}
 	rg = fd->data;
 
-	int i = R_MAX (0, r_ggpack_index_search(rg->index, io->off));
+	ut32 write_start = io->off;
+	return __write_internal (rg, write_start, buf, count);
+}
+
+static int __write_internal(RIOGGPack * rg, ut32 write_start, const ut8 *buf, int count) {
+	int i = R_MAX (0, r_ggpack_index_search(rg->index, write_start));
 
 	RGGPackIndexEntry * entry;
 	do {
 		entry = rg->index->entries[i];
-		r_io_ggpack_write_entry (rg, io, fd, buf, count, entry);
+		r_io_ggpack_write_entry (rg, write_start, buf, count, entry);
 		i++;
-	} while ((i < rg->index->length) && (entry->offset + entry->size) < (io->off + count));
+	} while ((i < rg->index->length) && (entry->offset + entry->size) < (write_start + count));
 
 	return count;
 }
 
+static ut64 __lseek(RIO *io, RIODesc *fd, ut64 offset, int whence) {
+	RIOGGPack *rg = NULL;
+	ut64 r_offset = offset;
+
+	if (!fd || !fd->data) {
+		return r_offset;
+	}
+
+	rg = fd->data;
+	ut32 current_size = CURRENT_SIZE (rg);
+
+	switch (whence) {
+	case SEEK_SET:
+		r_offset = offset;
+		break;
+	case SEEK_CUR:
+		r_offset = rg->offset + (ut32) offset;
+		break;
+	case SEEK_END:
+		r_offset = current_size + offset;
+		break;
+	}
+
+	if (r_offset > current_size) {
+		r_offset = current_size;
+	}
+
+	io->off = rg->offset = r_offset;
+
+	return r_offset;
+}
+
 static bool __resize(RIO *io, RIODesc *fd, ut64 count) {
-	return false;
+	RIOGGPack *rg;
+	if (!fd || !fd->data) {
+		return false;
+	}
+	rg = fd->data;
+
+	if (count > 0xffffffff) {
+		dbg_log ("can't resize that much\n");
+		return false;
+	}
+
+	int i = r_ggpack_index_search(rg->index, rg->offset);
+	if (i < 1) {
+		dbg_log ("can't resize here\n");
+		return false;
+	}
+
+
+	ut32 old_size = CURRENT_SIZE (rg);
+	st64 delta = count - old_size;
+
+	return r_io_ggpack_resize_entry (rg, io, fd, delta, i);
 }
 
 static int __system(RIO *io, RIODesc *fd, const char *command) {
@@ -217,98 +263,105 @@ static int __system(RIO *io, RIODesc *fd, const char *command) {
 	return 0;
 }
 
-static int r_io_ggpack_read_entry(RIOGGPack *rg, RIO *io, RIODesc *fd, ut8 *buf, int count, RGGPackIndexEntry * entry) {
+static int r_io_ggpack_read_entry(RIOGGPack *rg, ut32 read_start, ut8 *buf, int count, RGGPackIndexEntry * entry) {
 	ut32 entry_start = entry->offset;
 	ut32 entry_end = entry->offset + entry->size;
-	ut32 read_end = io->off + count;
+	ut32 read_end = read_start + count;
 
 	// TODO remove this "inside" shit
-	bool inside = entry_start <= read_end && entry_end >= io->off;
+	bool inside = entry_start <= read_end && entry_end >= read_start;
 	if (!inside) {
 		return 0;
 	}
 
-	ut32 start_gap = (entry_start > io->off) ? entry_start - io->off : 0;
-	ut32 real_count = R_MIN (entry_end, read_end) - R_MAX (entry_start, io->off);
+	ut32 start_gap = (entry_start > read_start) ? entry_start - read_start : 0;
+	ut32 real_count = R_MIN (entry_end, read_end) - R_MAX (entry_start, read_start);
 
 	if (entry->is_obfuscated) {
-		if (io->off > entry_start) {
+		if (read_start > entry_start) {
 			ut8 * dbuf = malloc (real_count+1);
-			fseek (rg->file, io->off-1 + start_gap, SEEK_SET);
+			fseek (rg->file, read_start-1 + start_gap, SEEK_SET);
 			fread (dbuf, 1, real_count+1, rg->file);
-			gg_deobfuscate (rg, buf + start_gap, dbuf, entry_start, entry->size, io->off + start_gap, real_count+1);
+			gg_deobfuscate (rg, buf + start_gap, dbuf, entry_start, entry->size, read_start + start_gap, real_count+1);
 			R_FREE (dbuf);
 		} else {
-			fseek (rg->file, io->off + start_gap, SEEK_SET);
+			fseek (rg->file, read_start + start_gap, SEEK_SET);
 			fread (buf + start_gap, 1, real_count, rg->file);
-			gg_deobfuscate (rg, NULL, buf+start_gap, entry_start, entry->size, io->off + start_gap, real_count);
+			gg_deobfuscate (rg, NULL, buf+start_gap, entry_start, entry->size, read_start + start_gap, real_count);
 		}
 	} else {
-		fseek (rg->file, io->off + start_gap, SEEK_SET);
+		fseek (rg->file, read_start + start_gap, SEEK_SET);
 		fread (buf + start_gap, 1, real_count, rg->file);
 	}
 
 	return real_count;
 }
 
-static int r_io_ggpack_write_entry(RIOGGPack *rg, RIO *io, RIODesc *fd, const ut8 *buf, int count, RGGPackIndexEntry * entry) {
+static int r_io_ggpack_write_entry(RIOGGPack *rg, ut32 write_start, const ut8 *buf, int count, RGGPackIndexEntry * entry) {
 	ut32 entry_start = entry->offset;
 	ut32 entry_end = entry->offset + entry->size;
-	ut32 write_end = io->off + count;
+	ut32 write_end = write_start + count;
 	ut32 rest_size = entry_end - write_end;
 
 	// TODO remove this "inside" shit
-	bool inside = entry_start <= write_end && entry_end >= io->off;
+	bool inside = entry_start <= write_end && entry_end >= write_start;
 	if (!inside) {
 		return 0;
 	}
 
-	ut32 start_gap = (entry_start > io->off) ? entry_start - io->off : 0;
-	ut32 real_count = R_MIN (entry_end, write_end) - R_MAX (entry_start, io->off);
+	ut32 start_gap = (entry_start > write_start) ? entry_start - write_start : 0;
+	ut32 real_count = R_MIN (entry_end, write_end) - R_MAX (entry_start, write_start);
 	if (real_count == 0) {
 		return 0;
 	}
 
 	ut8 *dbuf, *wbuf;;
 	if (entry->is_obfuscated) {
-		if (io->off > entry_start) {
+		if (write_start > entry_start) {
 			dbuf = malloc(real_count + 1 + rest_size);
 			wbuf = dbuf + 1;
-			fseek (rg->file, io->off + start_gap - 1, SEEK_SET);
+			fseek (rg->file, write_start + start_gap - 1, SEEK_SET);
 			fread (dbuf, 1, 1, rg->file);
 			memcpy (wbuf, buf + start_gap, real_count);
 
 			if (rest_size > 0) {
-				ut64 saved_off = io->off;
-				io->off = write_end;
-				__read (io, fd, wbuf + real_count, rest_size);
-				io->off = saved_off;
+				__read_internal (rg, write_end, wbuf + real_count, rest_size);
 			}
 
-			gg_obfuscate (rg, NULL, dbuf, entry_start, entry->size, io->off + start_gap, real_count + 1 + rest_size);
+			gg_obfuscate (rg, NULL, dbuf, entry_start, entry->size, write_start + start_gap, real_count + 1 + rest_size);
 		} else {
 			wbuf = dbuf = malloc(real_count + rest_size);
 			memcpy (dbuf, buf + start_gap, real_count);
 
 			if (rest_size > 0) {
-				ut64 saved_off = io->off;
-				io->off = write_end;
-				__read (io, fd, wbuf + real_count, rest_size);
-				io->off = saved_off;
+				__read_internal (rg, write_end, wbuf + real_count, rest_size);
 			}
 
-			gg_obfuscate (rg, NULL, dbuf, entry_start, entry->size, io->off + start_gap, real_count + rest_size);
+			gg_obfuscate (rg, NULL, dbuf, entry_start, entry->size, write_start + start_gap, real_count + rest_size);
 		}
 	} else {
 		wbuf = dbuf = (ut8 *) buf + start_gap;
 	}
 
-	fseek (rg->file, io->off + start_gap, SEEK_SET);
+	fseek (rg->file, write_start + start_gap, SEEK_SET);
 	fwrite (wbuf, 1, real_count + rest_size, rg->file);
 
 	R_FREE (dbuf);
 
 	return real_count;
+}
+
+static bool r_io_ggpack_resize_entry(RIOGGPack *rg, RIO *io, RIODesc * fd, st64 delta, int i) {
+	RGGPackIndexEntry * entry = rg->index->entries[i];
+
+	st64 new_size = entry->size + delta;
+	if (new_size < 0) {
+		return false;
+	}
+
+	// r_ggpack_index_resize_entry_at (rg->index, i, new_size);
+
+	return true;
 }
 
 static bool r_io_ggpack_create_index(RIOGGPack *rg) {
