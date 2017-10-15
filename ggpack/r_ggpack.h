@@ -2,10 +2,24 @@
 #define R_GGPACK
 
 typedef struct {
+    ut32 name_off;
+    ut32 offset_off;
+    ut32 size_off;
+} RGGPackRawEntry;
+
+typedef struct {
+    char * string;
+    RGGPackRawEntry * raw_entry;
+    int entry_offset;
+    ut32 size;
+} RGGPackIndexString;
+
+typedef struct {
 	char *file_name;
 	ut32 offset;
 	ut32 size;
 	bool is_obfuscated;
+    RGGPackRawEntry * tmp_raw;
 } RGGPackIndexEntry;
 
 typedef struct {

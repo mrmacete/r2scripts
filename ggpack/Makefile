@@ -10,7 +10,7 @@ CC_IO=$(CC) $(CFLAGS_IO) $(LDFLAGS_IO)
 CC_BIN=$(CC) $(CFLAGS_BIN) $(LDFLAGS_BIN)
 
 all:
-	$(CC_IO) -o io_ggpack.$(EXT_SO) io_ggpack.c
+	$(CC_IO) -o io_ggpack.$(EXT_SO) io_ggpack.c gglib.c
 	$(CC_BIN) -o bin_ggpack.$(EXT_SO) bin_ggpack.c
 
 install: all
