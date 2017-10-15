@@ -43,7 +43,7 @@ GGHashValue *gg_hash_unserialize(const ut8* in_buf, ut32 buf_size) {
 
 	ut32 signature = r_read_le32 (in_buf);
 	if (signature != 0x04030201) {
-		dbg_log ("gg_hash_unserialize: wrong signature\n");
+		dbg_log ("gg_hash_unserialize: wrong signature 0x%x\n", signature);
 		return NULL;
 	}
 
@@ -65,8 +65,8 @@ GGHashValue *gg_hash_unserialize(const ut8* in_buf, ut32 buf_size) {
 		plo_length ++;
 	}
 
-	if ((plo_offset + plo_length * 4) >= buf_size) {
-		dbg_log ("gg_hash_unserialize: corrupted plo");
+	if ((plo_offset + (plo_length-1) * 4) >= buf_size) {
+		dbg_log ("gg_hash_unserialize: corrupted plo\n");
 		return NULL;
 	}
 
@@ -96,7 +96,7 @@ ut8 *gg_hash_serialize(GGHashValue * hash) {
 GGHashValue *gg_hash_new(ut32 n_pairs) {
 	GGHashValue * result = R_NEW0 (GGHashValue);
 	result->type = GG_TYPE_HASH;
-	result->pairs = malloc (n_pairs * sizeof (void *));
+	result->pairs = calloc (n_pairs, sizeof (void *));
 	result->n_pairs = n_pairs;
 	if (!result->pairs) {
 		R_FREE (result);
@@ -135,6 +135,21 @@ void gg_hash_free(GGHashValue * hash) {
 		hash->pairs = NULL;
 	}
 	R_FREE (hash);
+}
+
+GGValue *gg_hash_value_for_key(GGHashValue * hash, const char * key) {
+    if (!hash || !key) {
+        return NULL;
+    }
+
+    int i;
+    for (i = 0; i < hash->n_pairs; i ++) {
+        if (!strcmp (hash->pairs[i]->key, key)) {
+            return hash->pairs[i]->value;
+        }
+    }
+
+    return NULL;
 }
 
 GGArrayValue *gg_array_new(ut32 length) {

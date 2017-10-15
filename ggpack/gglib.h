@@ -45,5 +45,6 @@ void gg_array_free(GGArrayValue * array);
 
 GGHashValue *gg_hash_new(ut32 n_pairs);
 void gg_hash_free(GGHashValue * hash);
+GGValue *gg_hash_value_for_key(GGHashValue * hash, const char * key);
 
 #endif

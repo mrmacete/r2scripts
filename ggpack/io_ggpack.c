@@ -63,6 +63,8 @@ static void r_io_ggpack_dump_index(RIO * io, RIOGGPack * rg);
 static void r_dump_gghash_json (RIO * io, GGHashValue * hash);
 static void r_dump_ggarray_json (RIO * io, GGArrayValue * array);
 
+static int entries_sort_func(const void *a, const void *b);
+
 static RIOGGPack *r_io_ggpack_new(void) {
 	RIOGGPack *rg = R_NEW0 (RIOGGPack);
 	if (!rg) {
@@ -450,26 +452,8 @@ static bool r_io_ggpack_resize_entry(RIOGGPack *rg, RIO *io, RIODesc * fd, st64 
 }
 
 static bool r_io_ggpack_create_index(RIOGGPack *rg) {
-#define EXPECT(var_, entry_, cond_) \
-	if (cond_) {\
-		if (strcmp (var_, entry_) != 0) {\
-			dbg_log ("expected '"entry_"', got '%s'\n", var_);\
-			goto nice_error;\
-		} else {\
-			plo += 4;\
-			ut32 ptr = r_read_le32 (index_buffer + plo);\
-			if (ptr != 0xffffffff && ptr >= rg->index_size) {\
-				goto nice_error;\
-			}\
-			var_ = r_ggpack_read_str (index_buffer, plo);\
-			if (var_ == NULL) {\
-				break;\
-			}\
-			skip_cursor++;\
-		}\
-	}
-
 	ut8 *index_buffer = NULL;
+	RList * entries = NULL;
 
 	fseek (rg->file, 0, SEEK_SET);
 
@@ -487,89 +471,64 @@ read_direcory:
 	fseek (rg->file, rg->index_offset, SEEK_SET);
 	fread (index_buffer, 1, rg->index_size, rg->file);
 
-	eprintf ("DEO 0x%x %u - 0x%x %u\n", rg->index_offset, rg->index_size, rg->index_offset, rg->index_size);
 	gg_deobfuscate (rg, NULL, index_buffer, rg->index_offset, rg->index_size, rg->index_offset, rg->index_size);
 
-	if (!HAS_GG_INDEX_HEADER (index_buffer)) {
+	GGHashValue * index_dir = gg_hash_unserialize (index_buffer, rg->index_size);
+	if (!index_dir) {
 		goto nice_error;
 	}
 
-	ut32 plo = r_read_le32(index_buffer + 8);
-	if (index_buffer[plo] != 7) {
+	GGArrayValue * files = gg_hash_value_for_key (index_dir, "files");
+	if (!files) {
 		goto nice_error;
 	}
 
-	plo++;
+	entries = r_list_new ();
+	int i = 0;
+	bool is_sorted = true;
+	ut32 previous_offset = 0;
+	for (; i < files->length; i++) {
+		char * name;
+		ut32 offset = 0, size = 0;
+		int j = 0;
+		GGHashValue * a_file = files->entries[i];
 
-	RList * entries = r_list_new ();
-	int skip_cursor = 0;
-	RGGPackIndexEntry * previous_entry = NULL;
+		for (; j < a_file->n_pairs; j++) {
+			GGHashPair * pair = a_file->pairs[j];
+			if (!strcmp (pair->key, "filename")) {
+				if (pair->value->type == GG_TYPE_STRING) {
+					GGStringValue * sv = (GGStringValue *) pair->value;
+					if (sv->value) {
+						name = strdup (sv->value);
+					}
+				}
+			} else if (!strcmp (pair->key, "offset")) {
+				if (pair->value->type == GG_TYPE_INT) {
+					offset = ((GGIntValue *) pair->value)->value;
+				}
+			} else if (!strcmp (pair->key, "size")) {
+				if (pair->value->type == GG_TYPE_INT) {
+					size = ((GGIntValue *) pair->value)->value;
+				}
+			}
+		}
 
-	do {
-		ut32 ptr = r_read_le32 (index_buffer + plo);
-		if (ptr != 0xffffffff && ptr >= rg->index_size) {
+		if (name == NULL || offset == 0 || size == 0) {
 			goto nice_error;
 		}
-		char * name = r_ggpack_read_str (index_buffer, plo);
-		if (name == NULL) {
-			break;
+
+		if (offset > previous_offset) {
+			is_sorted = false;
 		}
-
-		EXPECT (name, "files", skip_cursor == 0);
-		EXPECT (name, "filename", skip_cursor == 1);
-		dbg_log ("\nname is %s\n", name);
-
-		plo += 4;
-
-		char * offset_str = r_ggpack_read_str (index_buffer, plo);
-		EXPECT (offset_str, "offset", skip_cursor == 2);
-		dbg_log ("offset is %s\n", offset_str);
-
-		ut32 offset = strtoul (offset_str, NULL, 10);
-		if (offset == 0) {
-			if (!previous_entry || !previous_entry->offset || !previous_entry->size) {
-				dbg_log ("unrecoverably missing offset");
-				goto nice_error;
-			}
-			offset = previous_entry->offset + previous_entry->size;
-			if (!previous_entry->size) {
-				if (!previous_entry->offset) {
-					dbg_log ("unrecoverably missing size");
-					goto nice_error;
-				}
-				previous_entry->size = offset - previous_entry->offset;
-			}
-			RGGPackIndexEntry * entry = r_ggpack_entry_new (name, offset, 0);
-			r_list_append (entries, entry);
-			previous_entry = entry;
-			continue;
-		}
-		if (previous_entry && !previous_entry->size) {
-			if (!previous_entry->offset) {
-				dbg_log ("unrecoverably missing size");
-				goto nice_error;
-			}
-			previous_entry->size = offset - previous_entry->offset;
-		}
-
-		plo += 4;
-
-		char * size_str = r_ggpack_read_str (index_buffer, plo);
-		EXPECT (size_str, "size", skip_cursor == 3);
-		dbg_log ("size is %s\n", size_str);
-
-		ut32 size = strtoul (size_str, NULL, 10);
-		if (size == 0) {
-			plo -= 4;
-			size = offset - previous_entry->offset;
-		}
-
-		plo += 4;
 
 		RGGPackIndexEntry * entry = r_ggpack_entry_new (name, offset, size);
 		r_list_append (entries, entry);
-		previous_entry = entry;
-	} while (true);
+	}
+
+	if (!is_sorted) {
+		dbg_log ("sorting index\n");
+		r_list_sort (entries, entries_sort_func);
+	}
 
 	RGGPackIndexEntry * index_entry = r_ggpack_entry_new ("index directory", rg->index_offset, rg->index_size);
 	r_list_append (entries, index_entry);
@@ -589,7 +548,16 @@ read_direcory:
 	return true;
 
 nice_error:
-	if (rg->version < BRUTE_VERSIONS) {
+	if (entries) {
+		RListIter * iter;
+		RGGPackIndexEntry * entry;
+		r_list_foreach (entries, iter, entry) {
+			r_ggpack_entry_free (entry);
+		}
+		r_list_free (entries);
+		entries = NULL;
+	}
+	if (rg->version < BRUTE_VERSIONS - 1) {
 		rg->version++;
 		dbg_log ("retry with version %d\n", rg->version);
 		goto read_direcory;
@@ -603,8 +571,10 @@ bad_error:
 	return false;
 }
 
-static ut32 r_gg_sample_plo(ut8 *index_buf, ut32 plo, ut32 i) {
-	return r_read_le32 (index_buf + plo + 1 + i * 4);
+static int entries_sort_func(const void *a, const void *b) {
+	RGGPackIndexEntry *A = (RGGPackIndexEntry *)a;
+	RGGPackIndexEntry *B = (RGGPackIndexEntry *)b;
+	return A->offset - B->offset;
 }
 
 static void r_dump_ggarray_json (RIO * io, GGArrayValue * array) {
