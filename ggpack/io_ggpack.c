@@ -63,6 +63,8 @@ static void r_io_ggpack_dump_index(RIO * io, RIOGGPack * rg);
 static void r_dump_gghash_json (RIO * io, GGHashValue * hash);
 static void r_dump_ggarray_json (RIO * io, GGArrayValue * array);
 
+static GGHashValue *r_ggpack_index_to_hash(RGGPackIndex * index);
+
 static int entries_sort_func(const void *a, const void *b);
 
 static RIOGGPack *r_io_ggpack_new(void) {
@@ -272,6 +274,28 @@ static int __system(RIO *io, RIODesc *fd, const char *command) {
 	rg = fd->data;
 
 	if (!strcmp (command, "ri")) {
+		GGHashValue * index_dir = r_ggpack_index_to_hash (rg->index);
+		ut8 * new_index_buf;
+		ut32 new_index_size;
+		gg_hash_serialize (index_dir, &new_index_buf, &new_index_size);
+
+		ut8 int_buf[4];
+		r_write_le32 (&int_buf[0], new_index_size);
+		__write_internal (rg, 4, &int_buf[0], 4);
+
+		rg->index->entries[rg->index->length-1]->size = new_index_size;
+		rg->index_size = new_index_size;
+		__write_internal (rg, rg->index_offset, new_index_buf, rg->index_size);
+
+		/*FILE * f = fopen ("temp_rebuilt_index", "wb");
+		fwrite (new_index_buf, 1, new_index_size, f);
+		fclose (f);
+		eprintf ("written\n");*/
+
+		gg_hash_free (index_dir);
+	}
+
+	if (!strcmp (command, "00ri")) {
 		ut32 old_size = rg->index_size;
 		ut8 * old_index_buf = malloc (old_size);
 		__read_internal (rg, rg->index_offset, old_index_buf, rg->index_size);
@@ -321,11 +345,11 @@ static int __system(RIO *io, RIODesc *fd, const char *command) {
 		char * test_string = "this is a fairly long text useful to test obfuscation correctness, i.e. is this text being obfuscated then deobfuscated to itself? only the test can tell it, so let's see how it goes.";
 		ut32 the_size = strlen (test_string);
 		ut8 * buf = malloc (the_size);
-		strcpy (buf, test_string);
+		strcpy ((char *) buf, test_string);
 		gg_obfuscate (rg, NULL, buf, 0, the_size, 0, the_size);
 		gg_deobfuscate (rg, NULL, buf, 0, the_size, 0, the_size);
 		eprintf ("%s\n", buf);
-		eprintf ("success? %d\n", strcmp (buf, test_string) == 0);
+		eprintf ("success? %d\n", strcmp ((char *) buf, test_string) == 0);
 		R_FREE (buf);
 		return 0;
 	}
@@ -336,6 +360,31 @@ static int __system(RIO *io, RIODesc *fd, const char *command) {
 	}
 
 	return 0;
+}
+
+static GGHashValue *r_ggpack_index_to_hash(RGGPackIndex * index) {
+	int i;
+	GGHashValue * index_dir = gg_hash_new (1);
+	GGArrayValue * files = gg_array_new (index->length - 2);
+	index_dir->pairs[0] = gg_pair_new ("files", (GGValue *) files);
+
+	for (i = 1; i < index->length - 1; i++) {
+		GGHashValue * file = gg_hash_new (3);
+		RGGPackIndexEntry * entry = index->entries[i];
+
+		GGStringValue * filename = gg_string_new (entry->file_name);
+		file->pairs[0] = gg_pair_new ("filename", (GGValue *) filename);
+
+		GGIntValue * offset = gg_int_new (entry->offset);
+		file->pairs[1] = gg_pair_new ("offset", (GGValue *) offset);
+
+		GGIntValue * size = gg_int_new (entry->size);
+		file->pairs[2] = gg_pair_new ("size", (GGValue *) size);
+
+		files->entries[i-1] = (GGValue *) file;
+	}
+
+	return index_dir;
 }
 
 static int r_io_ggpack_read_entry(RIOGGPack *rg, ut32 read_start, ut8 *buf, int count, RGGPackIndexEntry * entry) {
@@ -454,6 +503,7 @@ static bool r_io_ggpack_resize_entry(RIOGGPack *rg, RIO *io, RIODesc * fd, st64 
 static bool r_io_ggpack_create_index(RIOGGPack *rg) {
 	ut8 *index_buffer = NULL;
 	RList * entries = NULL;
+	GGHashValue * index_dir = NULL;
 
 	fseek (rg->file, 0, SEEK_SET);
 
@@ -473,13 +523,14 @@ read_direcory:
 
 	gg_deobfuscate (rg, NULL, index_buffer, rg->index_offset, rg->index_size, rg->index_offset, rg->index_size);
 
-	GGHashValue * index_dir = gg_hash_unserialize (index_buffer, rg->index_size);
+	index_dir = gg_hash_unserialize (index_buffer, rg->index_size);
 	if (!index_dir) {
 		goto nice_error;
 	}
 
-	GGArrayValue * files = gg_hash_value_for_key (index_dir, "files");
+	GGArrayValue * files = (GGArrayValue *) gg_hash_value_for_key (index_dir, "files");
 	if (!files) {
+		dbg_log ("missing \"files\" key\n");
 		goto nice_error;
 	}
 
@@ -491,7 +542,7 @@ read_direcory:
 		char * name;
 		ut32 offset = 0, size = 0;
 		int j = 0;
-		GGHashValue * a_file = files->entries[i];
+		GGHashValue * a_file = (GGHashValue *) files->entries[i];
 
 		for (; j < a_file->n_pairs; j++) {
 			GGHashPair * pair = a_file->pairs[j];
@@ -514,6 +565,7 @@ read_direcory:
 		}
 
 		if (name == NULL || offset == 0 || size == 0) {
+			dbg_log ("incomplete entry %s 0x%x %u\n", name, offset, size);
 			goto nice_error;
 		}
 
@@ -539,12 +591,13 @@ read_direcory:
 
 	rg->index = r_ggpack_index_new (entries);
 	r_list_free (entries);
-	if (!rg->index) {
-		goto bad_error;
-	}
-
 	R_FREE (index_buffer);
+	gg_hash_free (index_dir);
 
+	if (!rg->index) {
+		eprintf ("no index, oh snap\n");
+		return false;
+	}
 	return true;
 
 nice_error:
@@ -556,6 +609,10 @@ nice_error:
 		}
 		r_list_free (entries);
 		entries = NULL;
+	}
+	if (index_dir) {
+		gg_hash_free (index_dir);
+		index_dir = NULL;
 	}
 	if (rg->version < BRUTE_VERSIONS - 1) {
 		rg->version++;
@@ -719,7 +776,7 @@ static bool r_io_ggpack_rebuild_index_directory(RIOGGPack *rg, ut8 ** new_index_
 	constants = R_NEW0 (RGGPackIndexString);
 	constants->string = strdup ("files");
 	constants->size = 6;
-	constants->raw_entry = &s_files;
+	constants->raw_entry = (RGGPackRawEntry *) &s_files;
 	constants->entry_offset = 0;
 	r_list_append (string_table, constants);
 	string_table_size += constants->size;
@@ -727,7 +784,7 @@ static bool r_io_ggpack_rebuild_index_directory(RIOGGPack *rg, ut8 ** new_index_
 	constants = R_NEW0 (RGGPackIndexString);
 	constants->string = strdup ("filename");
 	constants->size = 9;
-	constants->raw_entry = &s_filename;
+	constants->raw_entry = (RGGPackRawEntry *) &s_filename;
 	constants->entry_offset = 0;
 	r_list_append (string_table, constants);
 	string_table_size += constants->size;
@@ -735,7 +792,7 @@ static bool r_io_ggpack_rebuild_index_directory(RIOGGPack *rg, ut8 ** new_index_
 	constants = R_NEW0 (RGGPackIndexString);
 	constants->string = strdup ("offset");
 	constants->size = 7;
-	constants->raw_entry = &s_offset;
+	constants->raw_entry = (RGGPackRawEntry *) &s_offset;
 	constants->entry_offset = 0;
 	r_list_append (string_table, constants);
 	string_table_size += constants->size;
@@ -743,7 +800,7 @@ static bool r_io_ggpack_rebuild_index_directory(RIOGGPack *rg, ut8 ** new_index_
 	constants = R_NEW0 (RGGPackIndexString);
 	constants->string = strdup ("size");
 	constants->size = 5;
-	constants->raw_entry = &s_size;
+	constants->raw_entry = (RGGPackRawEntry *) &s_size;
 	constants->entry_offset = 0;
 	r_list_append (string_table, constants);
 	string_table_size += constants->size;
