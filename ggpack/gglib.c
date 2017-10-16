@@ -471,6 +471,9 @@ static st64 gg_plo_add_string(GGSerializationContext * ctx, const char * string)
 	}
 
 	ut64 st_offset = ctx->string_table_offsets[in_table];
+	if (st_offset == 0) {
+		st_offset = 0xfffffffe;
+	}
 
 	RListIter * iter;
 	void * plo_entry;
@@ -496,7 +499,11 @@ static void gg_plo_add_offset(GGSerializationContext * ctx, ut32 offset) {
 	RListIter * iter;
 	void * plo_entry;
 	r_list_foreach (ctx->plo, iter, plo_entry) {
-		iter->data += offset;
+		if ((ut32) plo_entry == 0xfffffffe) {
+			iter->data = offset;
+		} else {
+			iter->data += offset;
+		}
 	}
 }
 
