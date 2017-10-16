@@ -47,8 +47,8 @@ GGHashValue *gg_hash_new(ut32 n_pairs);
 void gg_hash_free(GGHashValue * hash);
 GGValue *gg_hash_value_for_key(GGHashValue * hash, const char * key);
 
-GGIntValue *gg_int_new (ut32 value);
-GGStringValue *gg_string_new (const char * value);
-GGHashPair *gg_pair_new (const char * key, GGValue * value);
+GGIntValue *gg_int_new(ut32 value);
+GGStringValue *gg_string_new(const char * value);
+GGHashPair *gg_pair_new(const char * key, GGValue * value);
 
 #endif

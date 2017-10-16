@@ -28,9 +28,9 @@ static const ut8 magic_bytes[BRUTE_VERSIONS][16] = {
 
 #define HAS_GG_INDEX_HEADER(x) (x[0] == 1 && x[1] == 2 && x[2] == 3 && x[3] == 4)
 #define CURRENT_SIZE(rg) (\
-	rg->index->entries[rg->index->length-1]->offset +\
-	rg->index->entries[rg->index->length-1]->size\
-)
+		rg->index->entries[rg->index->length-1]->offset +\
+		rg->index->entries[rg->index->length-1]->size\
+		)
 
 static int r_io_ggpack_read_entry(RIOGGPack *rg, ut32 read_start, ut8 *buf, int count, RGGPackIndexEntry * entry);
 static int r_io_ggpack_write_entry(RIOGGPack *rg, ut32 write_start, const ut8 *buf, int count, RGGPackIndexEntry * entry);
@@ -46,9 +46,9 @@ static int r_ggpack_index_search(RGGPackIndex *index, ut32 offset);
 
 static ut8 gg_sample_buffer(RIOGGPack *rg, ut8 *buffer, ut32 index, ut32 displace);
 static void gg_deobfuscate(RIOGGPack *rg, ut8 * out_buffer, ut8 *buffer,
-			   ut32 key_offset, ut32 key_size, ut32 buf_offset, ut32 buf_size);
+                           ut32 key_offset, ut32 key_size, ut32 buf_offset, ut32 buf_size);
 static void gg_obfuscate(RIOGGPack *rg, ut8 * out_buffer, ut8 *buffer,
-			   ut32 key_offset, ut32 key_size, ut32 buf_offset, ut32 buf_size);
+                         ut32 key_offset, ut32 key_size, ut32 buf_offset, ut32 buf_size);
 static char * r_ggpack_read_str(ut8 * index_buffer, ut32 offset);
 static ut32 fread_le32(FILE *f);
 
@@ -56,12 +56,12 @@ static int __read_internal(RIOGGPack * rg, ut32 read_start, ut8 * buf, int count
 static int __write_internal(RIOGGPack * rg, ut32 write_start, const ut8 *buf, int count);
 
 static bool r_io_ggpack_rebuild_index_directory(RIOGGPack *rg, ut8 ** new_index_buf, ut32 * size, ut8 * old_index_buf);
-static int sort_index_string_cb (const void *a, const void *b);
+static int sort_index_string_cb(const void *a, const void *b);
 static void r_io_ggpack_dump_index(RIO * io, RIOGGPack * rg);
 
 
-static void r_dump_gghash_json (RIO * io, GGHashValue * hash);
-static void r_dump_ggarray_json (RIO * io, GGArrayValue * array);
+static void r_dump_gghash_json(RIO * io, GGHashValue * hash);
+static void r_dump_ggarray_json(RIO * io, GGArrayValue * array);
 
 static GGHashValue *r_ggpack_index_to_hash(RGGPackIndex * index);
 
@@ -116,7 +116,7 @@ static RIODesc *__open(RIO *io, const char *pathname, int rw, int mode) {
 	}
 
 	rg->file_name = strdup (pathname + 9);
-	rg->file = fopen (rg->file_name, (mode & R_IO_RW) ? "rb+": "rb");
+	rg->file = fopen (rg->file_name, (mode & R_IO_RW) ? "rb+" : "rb");
 	if (!rg->file) {
 		goto error;
 	}
@@ -265,9 +265,9 @@ static int __system(RIO *io, RIODesc *fd, const char *command) {
 
 	if (!strcmp (command, "help") || !strcmp (command, "h") || !strcmp (command, "?")) {
 		io->cb_printf ("ggpack commands available via =!\n"
-			"?                          Show this help\n"
-			"ri                         rebuild index\n"
-		);
+		               "?                          Show this help\n"
+		               "ri                         rebuild index\n"
+		               );
 		return true;
 	}
 
@@ -288,9 +288,9 @@ static int __system(RIO *io, RIODesc *fd, const char *command) {
 		__write_internal (rg, rg->index_offset, new_index_buf, rg->index_size);
 
 		/*FILE * f = fopen ("temp_rebuilt_index", "wb");
-		fwrite (new_index_buf, 1, new_index_size, f);
-		fclose (f);
-		eprintf ("written\n");*/
+		   fwrite (new_index_buf, 1, new_index_size, f);
+		   fclose (f);
+		   eprintf ("written\n");*/
 
 		gg_hash_free (index_dir);
 	}
@@ -320,9 +320,9 @@ static int __system(RIO *io, RIODesc *fd, const char *command) {
 		rg->index_size = new_size;
 		//__write_internal (rg, rg->index_offset, new_index_buf, rg->index_size);
 		/*FILE * f = fopen ("temp_rebuilt_index", "wb");
-		fwrite (new_index_buf, 1, new_size, f);
-		fclose (f);
-		eprintf ("written\n");*/
+		   fwrite (new_index_buf, 1, new_size, f);
+		   fclose (f);
+		   eprintf ("written\n");*/
 
 		ut8 * test_buf = malloc (new_size);
 		//memcpy (test_buf, new_index_buf, new_size);
@@ -634,7 +634,7 @@ static int entries_sort_func(const void *a, const void *b) {
 	return A->offset - B->offset;
 }
 
-static void r_dump_ggarray_json (RIO * io, GGArrayValue * array) {
+static void r_dump_ggarray_json(RIO * io, GGArrayValue * array) {
 	RListIter * iter;
 	GGHashPair * pair;
 	int i = 0;
@@ -643,20 +643,20 @@ static void r_dump_ggarray_json (RIO * io, GGArrayValue * array) {
 	for (i = 0; i < array->length; i++) {
 		GGValue * value = array->entries[i];
 		switch (value->type) {
-			case GG_TYPE_STRING:
-				io->cb_printf ("\"%s\"", ((GGStringValue *) value)->value);
-				break;
-			case GG_TYPE_INT:
-				io->cb_printf ("%u", ((GGIntValue *) value)->value);
-				break;
-			case GG_TYPE_HASH:
-				r_dump_gghash_json (io, (GGHashValue *) value);
-				break;
-			case GG_TYPE_ARRAY:
-				r_dump_ggarray_json (io, (GGArrayValue *) value);
-				break;
-			default:
-				io->cb_printf ("\"UNSUPPORTED TYPE %d\"", pair->value->type);
+		case GG_TYPE_STRING:
+			io->cb_printf ("\"%s\"", ((GGStringValue *) value)->value);
+			break;
+		case GG_TYPE_INT:
+			io->cb_printf ("%u", ((GGIntValue *) value)->value);
+			break;
+		case GG_TYPE_HASH:
+			r_dump_gghash_json (io, (GGHashValue *) value);
+			break;
+		case GG_TYPE_ARRAY:
+			r_dump_ggarray_json (io, (GGArrayValue *) value);
+			break;
+		default:
+			io->cb_printf ("\"UNSUPPORTED TYPE %d\"", pair->value->type);
 		}
 
 		if (i < array->length - 1) {
@@ -666,30 +666,30 @@ static void r_dump_ggarray_json (RIO * io, GGArrayValue * array) {
 	io->cb_printf ("]");
 }
 
-static void r_dump_gghash_json (RIO * io, GGHashValue * hash) {
+static void r_dump_gghash_json(RIO * io, GGHashValue * hash) {
 	RListIter * iter;
 	GGHashPair * pair;
 	int i = 0;
 
 	io->cb_printf ("{");
-	for (i = 0; i < hash->n_pairs; i ++) {
+	for (i = 0; i < hash->n_pairs; i++) {
 		GGHashPair * pair = hash->pairs[i];
 		io->cb_printf ("\"%s\": ", pair->key);
 		switch (pair->value->type) {
-			case GG_TYPE_STRING:
-				io->cb_printf ("\"%s\"", ((GGStringValue *) pair->value)->value);
-				break;
-			case GG_TYPE_INT:
-				io->cb_printf ("%u", ((GGIntValue *) pair->value)->value);
-				break;
-			case GG_TYPE_HASH:
-				r_dump_gghash_json (io, (GGHashValue *) pair->value);
-				break;
-			case GG_TYPE_ARRAY:
-				r_dump_ggarray_json (io, (GGArrayValue *) pair->value);
-				break;
-			default:
-				io->cb_printf ("\"UNSUPPORTED TYPE %d\"", pair->value->type);
+		case GG_TYPE_STRING:
+			io->cb_printf ("\"%s\"", ((GGStringValue *) pair->value)->value);
+			break;
+		case GG_TYPE_INT:
+			io->cb_printf ("%u", ((GGIntValue *) pair->value)->value);
+			break;
+		case GG_TYPE_HASH:
+			r_dump_gghash_json (io, (GGHashValue *) pair->value);
+			break;
+		case GG_TYPE_ARRAY:
+			r_dump_ggarray_json (io, (GGArrayValue *) pair->value);
+			break;
+		default:
+			io->cb_printf ("\"UNSUPPORTED TYPE %d\"", pair->value->type);
 		}
 
 		if (i < hash->n_pairs) {
@@ -729,7 +729,7 @@ static bool r_io_ggpack_rebuild_index_directory(RIOGGPack *rg, ut8 ** new_index_
 	int i;
 	char str[16];
 	ut32 string_table_size = 0;
-	for (i = 1; i < rg->index->length-1; i ++) {
+	for (i = 1; i < rg->index->length-1; i++) {
 		RGGPackIndexEntry * entry = rg->index->entries[i];
 		entry->tmp_raw = R_NEW0 (RGGPackRawEntry);
 
@@ -844,7 +844,7 @@ static bool r_io_ggpack_rebuild_index_directory(RIOGGPack *rg, ut8 ** new_index_
 
 	string_table_buf = nbuf + old_plo + plo_size;
 	ut8 * string_table_cursor = string_table_buf;
-	*(string_table_cursor ++) = 0x08;
+	*(string_table_cursor++) = 0x08;
 
 	r_list_foreach (string_table, iter, table_entry) {
 		memcpy (string_table_cursor, table_entry->string, table_entry->size);
@@ -862,7 +862,7 @@ static bool r_io_ggpack_rebuild_index_directory(RIOGGPack *rg, ut8 ** new_index_
 
 	bool header = true;
 
-	for (i = 1; i < rg->index->length-1; i ++) {
+	for (i = 1; i < rg->index->length-1; i++) {
 		RGGPackIndexEntry * entry = rg->index->entries[i];
 
 		if (header) {
@@ -895,7 +895,7 @@ static bool r_io_ggpack_rebuild_index_directory(RIOGGPack *rg, ut8 ** new_index_
 	success = true;
 
 cleanup:
-	for (i = 0; i < rg->index->length; i ++) {
+	for (i = 0; i < rg->index->length; i++) {
 		RGGPackIndexEntry * entry = rg->index->entries[i];
 		if (entry->tmp_raw) {
 			R_FREE(entry->tmp_raw);
@@ -915,7 +915,7 @@ cleanup:
 	return success;
 }
 
-static int sort_index_string_cb (const void *a, const void *b) {
+static int sort_index_string_cb(const void *a, const void *b) {
 	RGGPackIndexString *A = (RGGPackIndexString *)a;
 	RGGPackIndexString *B = (RGGPackIndexString *)b;
 	return strcmp (A->string, B->string);
@@ -1030,7 +1030,7 @@ static int r_ggpack_index_search(RGGPackIndex *index, ut32 offset) {
 }
 
 static void gg_deobfuscate(RIOGGPack *rg, ut8 * out_buffer, ut8 *buffer,
-			   ut32 key_offset, ut32 key_size, ut32 buf_offset, ut32 buf_size) {
+                           ut32 key_offset, ut32 key_size, ut32 buf_offset, ut32 buf_size) {
 	ut8 previous = key_size & 0xff;
 	ut32 i = 0;
 	ut32 out_offset = 0;
@@ -1041,7 +1041,7 @@ static void gg_deobfuscate(RIOGGPack *rg, ut8 * out_buffer, ut8 *buffer,
 
 	if (displace) {
 		previous = gg_sample_buffer (rg, buffer, i++, displace - 1);
-		displace --;
+		displace--;
 		if (out_buffer != buffer) {
 			out_offset = 1;
 		}
@@ -1055,7 +1055,7 @@ static void gg_deobfuscate(RIOGGPack *rg, ut8 * out_buffer, ut8 *buffer,
 }
 
 static void gg_obfuscate(RIOGGPack *rg, ut8 * out_buffer, ut8 *buffer,
-			   ut32 key_offset, ut32 key_size, ut32 buf_offset, ut32 buf_size) {
+                         ut32 key_offset, ut32 key_size, ut32 buf_offset, ut32 buf_size) {
 	ut8 previous = key_size & 0xff;
 	ut32 i = 0;
 	ut32 out_offset = 0;
@@ -1066,7 +1066,7 @@ static void gg_obfuscate(RIOGGPack *rg, ut8 * out_buffer, ut8 *buffer,
 
 	if (displace) {
 		previous = gg_sample_buffer (rg, buffer, i++, displace - 1);
-		displace --;
+		displace--;
 		if (out_buffer != buffer) {
 			out_offset = 1;
 		}
