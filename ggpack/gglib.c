@@ -500,7 +500,7 @@ static void gg_plo_add_offset(GGSerializationContext * ctx, ut32 offset) {
 	void * plo_entry;
 	r_list_foreach (ctx->plo, iter, plo_entry) {
 		if ((ut32) plo_entry == 0xfffffffe) {
-			iter->data = offset;
+			iter->data = (void *) (ut64) offset;
 		} else {
 			iter->data += offset;
 		}

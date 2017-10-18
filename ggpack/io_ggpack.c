@@ -26,15 +26,18 @@ static const ut8 magic_bytes[BRUTE_VERSIONS][16] = {
 	{ 0x4f, 0xd0, 0xa0, 0xac, 0x4a, 0x56, 0xb9, 0xe5, 0x93, 0x79, 0x45, 0xa5, 0xc1, 0xcb, 0x31, 0x93 },
 };
 
-#define HAS_GG_INDEX_HEADER(x) (x[0] == 1 && x[1] == 2 && x[2] == 3 && x[3] == 4)
 #define CURRENT_SIZE(rg) (\
 		rg->index->entries[rg->index->length-1]->offset +\
 		rg->index->entries[rg->index->length-1]->size\
 		)
 
-static int r_io_ggpack_read_entry(RIOGGPack *rg, ut32 read_start, ut8 *buf, int count, RGGPackIndexEntry * entry);
-static int r_io_ggpack_write_entry(RIOGGPack *rg, ut32 write_start, const ut8 *buf, int count, RGGPackIndexEntry * entry);
+static int __read_internal(RIOGGPack * rg, ut32 read_start, ut8 * buf, int count, st32 prev_obfuscated);
+static int __write_internal(RIOGGPack * rg, ut32 write_start, const ut8 *buf, int count, st32 prev_obfuscated);
+
+static int r_io_ggpack_read_entry(RIOGGPack *rg, ut32 read_start, ut8 *buf, int count, RGGPackIndexEntry * entry, st32 *prev_obfuscated);
+static int r_io_ggpack_write_entry(RIOGGPack *rg, ut32 write_start, const ut8 *buf, int count, RGGPackIndexEntry * entry, st32 *prev_obfuscated);
 static bool r_io_ggpack_resize_entry(RIOGGPack *rg, RIO *io, RIODesc * fd, st64 delta, int i);
+static bool r_ggpack_index_resize_entry_at (RIOGGPack *rg, int i, ut64 at, st64 delta);
 static bool r_io_ggpack_create_index(RIOGGPack *rg);
 
 static RGGPackIndexEntry *r_ggpack_entry_new(char * name, ut32 offset, ut32 size);
@@ -49,16 +52,8 @@ static void gg_deobfuscate(RIOGGPack *rg, ut8 * out_buffer, ut8 *buffer,
                            ut32 key_offset, ut32 key_size, ut32 buf_offset, ut32 buf_size);
 static void gg_obfuscate(RIOGGPack *rg, ut8 * out_buffer, ut8 *buffer,
                          ut32 key_offset, ut32 key_size, ut32 buf_offset, ut32 buf_size);
-static char * r_ggpack_read_str(ut8 * index_buffer, ut32 offset);
-static ut32 fread_le32(FILE *f);
 
-static int __read_internal(RIOGGPack * rg, ut32 read_start, ut8 * buf, int count);
-static int __write_internal(RIOGGPack * rg, ut32 write_start, const ut8 *buf, int count);
-
-static bool r_io_ggpack_rebuild_index_directory(RIOGGPack *rg, ut8 ** new_index_buf, ut32 * size, ut8 * old_index_buf);
-static int sort_index_string_cb(const void *a, const void *b);
 static void r_io_ggpack_dump_index(RIO * io, RIOGGPack * rg);
-
 
 static void r_dump_gghash_json(RIO * io, GGHashValue * hash);
 static void r_dump_ggarray_json(RIO * io, GGArrayValue * array);
@@ -66,6 +61,7 @@ static void r_dump_ggarray_json(RIO * io, GGArrayValue * array);
 static GGHashValue *r_ggpack_index_to_hash(RGGPackIndex * index);
 
 static int entries_sort_func(const void *a, const void *b);
+static ut32 fread_le32(FILE *f);
 
 static RIOGGPack *r_io_ggpack_new(void) {
 	RIOGGPack *rg = R_NEW0 (RIOGGPack);
@@ -126,6 +122,7 @@ static RIODesc *__open(RIO *io, const char *pathname, int rw, int mode) {
 	}
 
 	RIODesc *desc = r_io_desc_new (io, &r_io_plugin_ggpack, pathname, rw, mode, rg);
+	desc->obsz = 1024 * 16;
 
 	return desc;
 
@@ -158,16 +155,16 @@ static int __read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
 	rg = fd->data;
 
 	ut32 read_start = io->off;
-	return __read_internal (rg, read_start, buf, count);
+	return __read_internal (rg, read_start, buf, count, -1);
 }
 
-static int __read_internal(RIOGGPack * rg, ut32 read_start, ut8 * buf, int count) {
+static int __read_internal(RIOGGPack * rg, ut32 read_start, ut8 * buf, int count, st32 prev_obfuscated) {
 	int i = R_MAX (0, r_ggpack_index_search(rg->index, read_start));
 
 	RGGPackIndexEntry * entry;
 	do {
 		entry = rg->index->entries[i];
-		r_io_ggpack_read_entry (rg, read_start, buf, count, entry);
+		r_io_ggpack_read_entry (rg, read_start, buf, count, entry, &prev_obfuscated);
 		i++;
 	} while ((i < rg->index->length) && (entry->offset + entry->size) < (read_start + count));
 
@@ -182,16 +179,16 @@ static int __write(RIO *io, RIODesc *fd, const ut8 *buf, int count) {
 	rg = fd->data;
 
 	ut32 write_start = io->off;
-	return __write_internal (rg, write_start, buf, count);
+	return __write_internal (rg, write_start, buf, count, -1);
 }
 
-static int __write_internal(RIOGGPack * rg, ut32 write_start, const ut8 *buf, int count) {
+static int __write_internal(RIOGGPack * rg, ut32 write_start, const ut8 *buf, int count, st32 prev_obfuscated) {
 	int i = R_MAX (0, r_ggpack_index_search(rg->index, write_start));
 
 	RGGPackIndexEntry * entry;
 	do {
 		entry = rg->index->entries[i];
-		r_io_ggpack_write_entry (rg, write_start, buf, count, entry);
+		r_io_ggpack_write_entry (rg, write_start, buf, count, entry, &prev_obfuscated);
 		i++;
 	} while ((i < rg->index->length) && (entry->offset + entry->size) < (write_start + count));
 
@@ -243,11 +240,10 @@ static bool __resize(RIO *io, RIODesc *fd, ut64 count) {
 	}
 
 	int i = r_ggpack_index_search(rg->index, rg->offset);
-	if (i < 1) {
+	if (i < 1 || i >= rg->index->length - 1) {
 		dbg_log ("can't resize here\n");
 		return false;
 	}
-
 
 	ut32 old_size = CURRENT_SIZE (rg);
 	st64 delta = count - old_size;
@@ -266,95 +262,15 @@ static int __system(RIO *io, RIODesc *fd, const char *command) {
 	if (!strcmp (command, "help") || !strcmp (command, "h") || !strcmp (command, "?")) {
 		io->cb_printf ("ggpack commands available via =!\n"
 		               "?                          Show this help\n"
-		               "ri                         rebuild index\n"
+		               // "pgD                        dump GGDictionary at current offset as json\n"
+		               "pgDi                       dump index GGDictionary as json\n"
 		               );
 		return true;
 	}
 
 	rg = fd->data;
 
-	if (!strcmp (command, "ri")) {
-		GGHashValue * index_dir = r_ggpack_index_to_hash (rg->index);
-		ut8 * new_index_buf;
-		ut32 new_index_size;
-		gg_hash_serialize (index_dir, &new_index_buf, &new_index_size);
-
-		ut8 int_buf[4];
-		r_write_le32 (&int_buf[0], new_index_size);
-		__write_internal (rg, 4, &int_buf[0], 4);
-
-		rg->index->entries[rg->index->length-1]->size = new_index_size;
-		rg->index_size = new_index_size;
-		__write_internal (rg, rg->index_offset, new_index_buf, rg->index_size);
-
-		/*FILE * f = fopen ("temp_rebuilt_index", "wb");
-		   fwrite (new_index_buf, 1, new_index_size, f);
-		   fclose (f);
-		   eprintf ("written\n");*/
-
-		gg_hash_free (index_dir);
-	}
-
-	if (!strcmp (command, "00ri")) {
-		ut32 old_size = rg->index_size;
-		ut8 * old_index_buf = malloc (old_size);
-		__read_internal (rg, rg->index_offset, old_index_buf, rg->index_size);
-
-		ut32 new_size = 0;
-		ut8 * new_index_buf = NULL;
-		if (!r_io_ggpack_rebuild_index_directory (rg, &new_index_buf, &new_size, old_index_buf)) {
-			if (new_index_buf) {
-				R_FREE (new_index_buf);
-			}
-			R_FREE (old_index_buf);
-			eprintf ("FAIL\n");
-			return -1;
-		}
-
-		ut8 int_buf[4];
-		r_write_le32 (&int_buf[0], new_size);
-		__write_internal (rg, 4, &int_buf[0], 4);
-
-
-		rg->index->entries[rg->index->length-1]->size = new_size;
-		rg->index_size = new_size;
-		//__write_internal (rg, rg->index_offset, new_index_buf, rg->index_size);
-		/*FILE * f = fopen ("temp_rebuilt_index", "wb");
-		   fwrite (new_index_buf, 1, new_size, f);
-		   fclose (f);
-		   eprintf ("written\n");*/
-
-		ut8 * test_buf = malloc (new_size);
-		//memcpy (test_buf, new_index_buf, new_size);
-
-		gg_obfuscate (rg, test_buf, new_index_buf, rg->index_offset, rg->index_size, rg->index_offset, rg->index_size);
-		fseek (rg->file, rg->index_offset, SEEK_SET);
-		fwrite (test_buf, 1, rg->index_size, rg->file);
-		gg_deobfuscate (rg, NULL, test_buf, rg->index_offset, rg->index_size, rg->index_offset, rg->index_size);
-
-		eprintf ("CORRECT: %d\n", memcmp (test_buf, new_index_buf, new_size) == 0);
-
-		R_FREE (test_buf);
-
-		R_FREE (new_index_buf);
-		R_FREE (old_index_buf);
-		return 0;
-	}
-
-	if (!strcmp (command, "test")) {
-		char * test_string = "this is a fairly long text useful to test obfuscation correctness, i.e. is this text being obfuscated then deobfuscated to itself? only the test can tell it, so let's see how it goes.";
-		ut32 the_size = strlen (test_string);
-		ut8 * buf = malloc (the_size);
-		strcpy ((char *) buf, test_string);
-		gg_obfuscate (rg, NULL, buf, 0, the_size, 0, the_size);
-		gg_deobfuscate (rg, NULL, buf, 0, the_size, 0, the_size);
-		eprintf ("%s\n", buf);
-		eprintf ("success? %d\n", strcmp ((char *) buf, test_string) == 0);
-		R_FREE (buf);
-		return 0;
-	}
-
-	if (!strcmp (command, "di")) {
+	if (!strcmp (command, "pgDi")) {
 		r_io_ggpack_dump_index (io, rg);
 		return 0;
 	}
@@ -387,13 +303,13 @@ static GGHashValue *r_ggpack_index_to_hash(RGGPackIndex * index) {
 	return index_dir;
 }
 
-static int r_io_ggpack_read_entry(RIOGGPack *rg, ut32 read_start, ut8 *buf, int count, RGGPackIndexEntry * entry) {
+static int r_io_ggpack_read_entry(RIOGGPack *rg, ut32 read_start, ut8 *buf, int count, RGGPackIndexEntry * entry, st32 * prev_obfuscated) {
 	ut32 entry_start = entry->offset;
 	ut32 entry_end = entry->offset + entry->size;
 	ut32 read_end = read_start + count;
 
 	// TODO remove this "inside" shit
-	bool inside = entry_start <= read_end && entry_end >= read_start;
+	bool inside = entry_start < read_end && entry_end >= read_start;
 	if (!inside) {
 		return 0;
 	}
@@ -404,8 +320,17 @@ static int r_io_ggpack_read_entry(RIOGGPack *rg, ut32 read_start, ut8 *buf, int 
 	if (entry->is_obfuscated) {
 		if (read_start > entry_start) {
 			ut8 * dbuf = malloc (real_count+1);
-			fseek (rg->file, read_start-1 + start_gap, SEEK_SET);
-			fread (dbuf, 1, real_count+1, rg->file);
+			if (*prev_obfuscated == -1) {
+				fseek (rg->file, read_start-1 + start_gap, SEEK_SET);
+				fread (dbuf, 1, real_count+1, rg->file);
+			} else {
+				fseek (rg->file, read_start-1 + start_gap, SEEK_SET);
+				st32 x = 0;
+				fread (&x, 1, 1, rg->file);
+				fseek (rg->file, read_start + start_gap, SEEK_SET);
+				fread (dbuf + 1, 1, real_count, rg->file);
+				dbuf[0] = *prev_obfuscated & 0xff;
+			}
 			gg_deobfuscate (rg, buf + start_gap, dbuf, entry_start, entry->size, read_start + start_gap, real_count+1);
 			R_FREE (dbuf);
 		} else {
@@ -418,17 +343,20 @@ static int r_io_ggpack_read_entry(RIOGGPack *rg, ut32 read_start, ut8 *buf, int 
 		fread (buf + start_gap, 1, real_count, rg->file);
 	}
 
+	*prev_obfuscated = -1;
 	return real_count;
 }
 
-static int r_io_ggpack_write_entry(RIOGGPack *rg, ut32 write_start, const ut8 *buf, int count, RGGPackIndexEntry * entry) {
+static int r_io_ggpack_write_entry(RIOGGPack *rg, ut32 write_start, const ut8 *buf, int count, RGGPackIndexEntry * entry, st32 * prev_obfuscated) {
 	ut32 entry_start = entry->offset;
 	ut32 entry_end = entry->offset + entry->size;
 	ut32 write_end = write_start + count;
-	ut32 rest_size = entry_end - write_end;
+	ut32 file_size = CURRENT_SIZE (rg);
+	write_end = R_MIN(file_size, write_end);
+	ut32 rest_size = R_MAX(0, (st64) entry_end - write_end);
 
 	// TODO remove this "inside" shit
-	bool inside = entry_start <= write_end && entry_end >= write_start;
+	bool inside = entry_start < write_end && entry_end >= write_start;
 	if (!inside) {
 		return 0;
 	}
@@ -439,44 +367,41 @@ static int r_io_ggpack_write_entry(RIOGGPack *rg, ut32 write_start, const ut8 *b
 		return 0;
 	}
 
-	eprintf ("WRITING entry %s (at 0x%x - size 0x%x)\n", entry->file_name, entry->offset, entry->size);
-	eprintf ("\tstart_gap %u\n", start_gap);
-	eprintf ("\treal_count %u\n", real_count);
-	eprintf ("\trest_size %u\n", rest_size);
-
 	ut8 *dbuf = NULL, *wbuf;;
 	if (entry->is_obfuscated) {
-		eprintf ("\tis obfuscated\n");
 		if (write_start > entry_start) {
-			eprintf ("\tin the middle of entry\n");
 			dbuf = malloc(real_count + 1 + rest_size);
 			wbuf = dbuf + 1;
-			fseek (rg->file, write_start + start_gap - 1, SEEK_SET);
-			fread (dbuf, 1, 1, rg->file);
+
+			if (*prev_obfuscated == -1) {
+				fseek (rg->file, write_start + start_gap - 1, SEEK_SET);
+				fread (dbuf, 1, 1, rg->file);
+			} else {
+				dbuf[0] = *prev_obfuscated & 0xff;
+			}
+
 			memcpy (wbuf, buf + start_gap, real_count);
 
 			if (rest_size > 0) {
-				__read_internal (rg, write_end, wbuf + real_count, rest_size);
+				__read_internal (rg, write_end, wbuf + real_count, rest_size, -1);
 			}
 
 			gg_obfuscate (rg, NULL, dbuf, entry_start, entry->size, write_start + start_gap, real_count + 1 + rest_size);
 		} else {
-			eprintf ("\tfrom start of entry\n");
 			wbuf = dbuf = malloc(real_count + rest_size);
 			memcpy (dbuf, buf + start_gap, real_count);
 
 			if (rest_size > 0) {
-				__read_internal (rg, write_end, wbuf + real_count, rest_size);
+				__read_internal (rg, write_end, wbuf + real_count, rest_size, -1);
 			}
 
-			eprintf ("\tOBF 0x%x %u - 0x%x %u\n", entry_start, entry->size, write_start + start_gap, real_count + rest_size);
 			gg_obfuscate (rg, NULL, dbuf, entry_start, entry->size, write_start + start_gap, real_count + rest_size);
 		}
 	} else {
-		eprintf ("\tis NOT obfuscated\n");
 		wbuf = (ut8 *) buf + start_gap;
 	}
 
+	*prev_obfuscated = -1;
 	fseek (rg->file, write_start + start_gap, SEEK_SET);
 	fwrite (wbuf, 1, real_count + rest_size, rg->file);
 
@@ -488,15 +413,112 @@ static int r_io_ggpack_write_entry(RIOGGPack *rg, ut32 write_start, const ut8 *b
 }
 
 static bool r_io_ggpack_resize_entry(RIOGGPack *rg, RIO *io, RIODesc * fd, st64 delta, int i) {
+	ut64 at = io->off;
+	bool result = r_ggpack_index_resize_entry_at (rg, i, at, delta);
+	io->off = at;
+	return result;
+}
+
+static bool r_ggpack_index_resize_entry_at (RIOGGPack *rg, int i, ut64 at, st64 delta) {
 	RGGPackIndexEntry * entry = rg->index->entries[i];
 
 	st64 new_size = entry->size + delta;
-	if (new_size < 0) {
+	if (new_size <= 0) {
 		return false;
 	}
 
-	// r_ggpack_index_resize_entry_at (rg->index, i, new_size);
+	int j;
+	if (delta >= 0) {
+		eprintf ("resizing and shifting up by %u bytes...\n", (ut32) delta);
+		j = i;
+		st32 saved_last_byte = -1;
+		for (; j < rg->index->length; j++) {
+			ut32 size = rg->index->entries[j]->size;
+			ut32 offset = rg->index->entries[j]->offset;
 
+			ut8 * buf;
+
+			if (j != i) {
+				offset += delta;
+			} else {
+				size += delta;
+			}
+
+			buf = malloc (size);
+			__read_internal (rg, offset, buf, size, saved_last_byte);
+
+			fseek (rg->file, offset + size - 1, SEEK_SET);
+			ut8 x;
+			fread (&x, 1, 1, rg->file);
+
+			rg->index->entries[j]->offset = offset;
+			rg->index->entries[j]->size = size;
+
+			__write_internal (rg, offset, buf, size, saved_last_byte);
+			R_FREE (buf);
+
+			saved_last_byte = x;
+		}
+	} else {
+		eprintf ("resizing down by %u bytes...\n", (ut32) -delta);
+		j = rg->index->length - 1;
+		for (; j >= i; j--) {
+			ut32 size = rg->index->entries[j]->size;
+			ut32 offset = rg->index->entries[j]->offset;
+
+			ut8 * buf;
+
+			if (j != i) {
+				offset += delta;
+			} else {
+				size += delta;
+			}
+
+			buf = malloc (size);
+			__read_internal (rg, offset, buf, size, -1);
+
+			rg->index->entries[j]->offset = offset;
+			rg->index->entries[j]->size = size;
+
+			__write_internal (rg, offset, buf, size, -1);
+			R_FREE (buf);
+		}
+	}
+
+	GGHashValue * index_dir = r_ggpack_index_to_hash (rg->index);
+	ut8 * new_index_buf;
+	ut32 new_index_size;
+	if (!gg_hash_serialize (index_dir, &new_index_buf, &new_index_size)) {
+		gg_hash_free (index_dir);
+		return false;
+	}
+
+	ut8 int_buf[4];
+	r_write_le32 (&int_buf[0], new_index_size);
+	__write_internal (rg, 4, &int_buf[0], 4, -1);
+
+	if (i != rg->index->length-1) {
+		rg->index_offset += delta;
+		r_write_le32 (&int_buf[0], rg->index_offset);
+		__write_internal (rg, 0, &int_buf[0], 4, -1);
+	}
+
+	rg->index->entries[rg->index->length-1]->size = new_index_size;
+	rg->index_size = new_index_size;
+	__write_internal (rg, rg->index_offset - (delta > 0 ? delta : 0), new_index_buf, rg->index_size, -1);
+
+	gg_hash_free (index_dir);
+	R_FREE (new_index_buf);
+
+	if (delta < 0) {
+		ut32 new_size = CURRENT_SIZE (rg);
+		dbg_log ("truncating file to %u\n", new_size);
+		if (ftruncate(fileno(rg->file), new_size) != 0) {
+			return false;
+		}
+	}
+	rg->offset = at;
+	fseek (rg->file, at, SEEK_SET);
 	return true;
 }
 
@@ -569,9 +591,10 @@ read_direcory:
 			goto nice_error;
 		}
 
-		if (offset > previous_offset) {
+		if (offset < previous_offset) {
 			is_sorted = false;
 		}
+		previous_offset = offset;
 
 		RGGPackIndexEntry * entry = r_ggpack_entry_new (name, offset, size);
 		r_list_append (entries, entry);
@@ -595,7 +618,6 @@ read_direcory:
 	gg_hash_free (index_dir);
 
 	if (!rg->index) {
-		eprintf ("no index, oh snap\n");
 		return false;
 	}
 	return true;
@@ -634,36 +656,17 @@ static int entries_sort_func(const void *a, const void *b) {
 	return A->offset - B->offset;
 }
 
-static void r_dump_ggarray_json(RIO * io, GGArrayValue * array) {
-	RListIter * iter;
-	GGHashPair * pair;
-	int i = 0;
-
-	io->cb_printf ("[");
-	for (i = 0; i < array->length; i++) {
-		GGValue * value = array->entries[i];
-		switch (value->type) {
-		case GG_TYPE_STRING:
-			io->cb_printf ("\"%s\"", ((GGStringValue *) value)->value);
-			break;
-		case GG_TYPE_INT:
-			io->cb_printf ("%u", ((GGIntValue *) value)->value);
-			break;
-		case GG_TYPE_HASH:
-			r_dump_gghash_json (io, (GGHashValue *) value);
-			break;
-		case GG_TYPE_ARRAY:
-			r_dump_ggarray_json (io, (GGArrayValue *) value);
-			break;
-		default:
-			io->cb_printf ("\"UNSUPPORTED TYPE %d\"", pair->value->type);
-		}
-
-		if (i < array->length - 1) {
-			io->cb_printf(", ");
-		}
+static void r_io_ggpack_dump_index(RIO * io, RIOGGPack * rg) {
+	ut8 * index_buf = malloc (rg->index_size);
+	__read_internal (rg, rg->index_offset, index_buf, rg->index_size, -1);
+	GGHashValue * index_dir = gg_hash_unserialize (index_buf, rg->index_size);
+	if (!index_dir) {
+		return;
 	}
-	io->cb_printf ("]");
+
+	r_dump_gghash_json (io, index_dir);
+
+	free (index_buf);
 }
 
 static void r_dump_gghash_json(RIO * io, GGHashValue * hash) {
@@ -699,226 +702,36 @@ static void r_dump_gghash_json(RIO * io, GGHashValue * hash) {
 	io->cb_printf ("}");
 }
 
-static void r_io_ggpack_dump_index(RIO * io, RIOGGPack * rg) {
-	ut8 * index_buf = malloc (rg->index_size);
-	__read_internal (rg, rg->index_offset, index_buf, rg->index_size);
-	GGHashValue * index_dir = gg_hash_unserialize (index_buf, rg->index_size);
-	if (!index_dir) {
-		eprintf ("TOTAL FAILURE");
-		return;
-	}
+static void r_dump_ggarray_json(RIO * io, GGArrayValue * array) {
+	RListIter * iter;
+	GGHashPair * pair;
+	int i = 0;
 
-	r_dump_gghash_json (io, index_dir);
-
-	free (index_buf);
-}
-
-static bool r_io_ggpack_rebuild_index_directory(RIOGGPack *rg, ut8 ** new_index_buf, ut32 * size, ut8 * old_index_buf) {
-	bool success = false;
-
-	ut8 * string_table_buf = NULL;
-	ut32 string_table_offset = 0;
-	ut8 * plo_buf = NULL;
-	RListIter *iter;
-	RGGPackIndexString *table_entry;
-	RList * string_table = r_list_newf (free);
-	if (!string_table) {
-		return false;
-	}
-
-	int i;
-	char str[16];
-	ut32 string_table_size = 0;
-	for (i = 1; i < rg->index->length-1; i++) {
-		RGGPackIndexEntry * entry = rg->index->entries[i];
-		entry->tmp_raw = R_NEW0 (RGGPackRawEntry);
-
-		RGGPackIndexString * str_name = R_NEW0 (RGGPackIndexString);
-		str_name->string = strdup (entry->file_name);
-		str_name->raw_entry = entry->tmp_raw;
-		str_name->entry_offset = offsetof (RGGPackRawEntry, name_off);
-		str_name->size = strlen (str_name->string) + 1;
-		r_list_append (string_table, str_name);
-		string_table_size += str_name->size;
-
-		snprintf (str, 16, "%u", entry->offset);
-		RGGPackIndexString * str_offset = R_NEW0 (RGGPackIndexString);
-		str_offset->string = strdup (str);
-		str_offset->raw_entry = entry->tmp_raw;
-		str_offset->entry_offset = offsetof (RGGPackRawEntry, offset_off);
-		str_offset->size = strlen (str_offset->string) + 1;
-		r_list_append (string_table, str_offset);
-		string_table_size += str_offset->size;
-
-		snprintf (str, 16, "%u", entry->size);
-		RGGPackIndexString * str_size = R_NEW0 (RGGPackIndexString);
-		str_size->string = strdup (str);
-		str_size->raw_entry = entry->tmp_raw;
-		str_size->entry_offset = offsetof (RGGPackRawEntry, size_off);
-		str_size->size = strlen (str_size->string) + 1;
-		r_list_append (string_table, str_size);
-		string_table_size += str_size->size;
-
-		if (!strcmp(entry->file_name, "AbandonedCircusDollRope1.wav")) {
-			eprintf ("\tstr_name = %s\n", str_name->string);
-			eprintf ("\tstr_offset = %s\n", str_offset->string);
-			eprintf ("\tstr_size = %s\n", str_size->string);
-		}
-	}
-
-	if (string_table_size == 0) {
-		success = false;
-		goto cleanup;
-	}
-
-	ut32 s_files, s_filename, s_offset, s_size;
-	RGGPackIndexString * constants;
-	constants = R_NEW0 (RGGPackIndexString);
-	constants->string = strdup ("files");
-	constants->size = 6;
-	constants->raw_entry = (RGGPackRawEntry *) &s_files;
-	constants->entry_offset = 0;
-	r_list_append (string_table, constants);
-	string_table_size += constants->size;
-
-	constants = R_NEW0 (RGGPackIndexString);
-	constants->string = strdup ("filename");
-	constants->size = 9;
-	constants->raw_entry = (RGGPackRawEntry *) &s_filename;
-	constants->entry_offset = 0;
-	r_list_append (string_table, constants);
-	string_table_size += constants->size;
-
-	constants = R_NEW0 (RGGPackIndexString);
-	constants->string = strdup ("offset");
-	constants->size = 7;
-	constants->raw_entry = (RGGPackRawEntry *) &s_offset;
-	constants->entry_offset = 0;
-	r_list_append (string_table, constants);
-	string_table_size += constants->size;
-
-	constants = R_NEW0 (RGGPackIndexString);
-	constants->string = strdup ("size");
-	constants->size = 5;
-	constants->raw_entry = (RGGPackRawEntry *) &s_size;
-	constants->entry_offset = 0;
-	r_list_append (string_table, constants);
-	string_table_size += constants->size;
-
-	r_list_sort (string_table, sort_index_string_cb);
-
-	ut32 plo_size = (rg->index->length - 1) * 3 * 4 + 1 + 4 * 4;
-	ut32 old_plo = r_read_le32 (old_index_buf + 8);
-	*size = old_plo + plo_size + 1 + string_table_size;
-	ut8 * nbuf = *new_index_buf = malloc (*size);
-	memcpy (nbuf, old_index_buf, old_plo);
-
-	ut8 * list_index = nbuf + 12;
-
-	memcpy (list_index, "\x02\x01\x00\x00\x00\x00\x00\x00\x00\x03\x00\x00\x00\x00", 14);
-	r_write_le32 (list_index + 10, rg->index->length -2);
-	list_index += 14;
-
-	ut32 list_index_iterator = 2;
-	i = 0;
-	while (i < rg->index->length-2) {
-		bool is_first = list_index_iterator == 2;
-		memcpy (list_index, "\x02\x03\x00\x00\x00\x01\x00\x00\x00\x04\x00\x00\x00\x00\x03\x00\x00\x00\x05\x00\x00\x00\x00\x05\x00\x00\x00\x05\x00\x00\x00\x00\x02", 33);
-		r_write_le32 (list_index + 10, list_index_iterator);
-		list_index_iterator++;
-		if (is_first) {
-			list_index_iterator++;
+	io->cb_printf ("[");
+	for (i = 0; i < array->length; i++) {
+		GGValue * value = array->entries[i];
+		switch (value->type) {
+		case GG_TYPE_STRING:
+			io->cb_printf ("\"%s\"", ((GGStringValue *) value)->value);
+			break;
+		case GG_TYPE_INT:
+			io->cb_printf ("%u", ((GGIntValue *) value)->value);
+			break;
+		case GG_TYPE_HASH:
+			r_dump_gghash_json (io, (GGHashValue *) value);
+			break;
+		case GG_TYPE_ARRAY:
+			r_dump_ggarray_json (io, (GGArrayValue *) value);
+			break;
+		default:
+			io->cb_printf ("\"UNSUPPORTED TYPE %d\"", pair->value->type);
 		}
 
-		r_write_le32 (list_index + 19, list_index_iterator);
-		list_index_iterator++;
-		if (is_first) {
-			list_index_iterator++;
-		}
-
-		r_write_le32 (list_index + 28, list_index_iterator);
-		list_index_iterator++;
-		list_index += 33;
-		i++;
-	}
-
-	string_table_buf = nbuf + old_plo + plo_size;
-	ut8 * string_table_cursor = string_table_buf;
-	*(string_table_cursor++) = 0x08;
-
-	r_list_foreach (string_table, iter, table_entry) {
-		memcpy (string_table_cursor, table_entry->string, table_entry->size);
-		RGGPackRawEntry * tmp_raw = table_entry->raw_entry;
-		*((ut32*)((ut8*)tmp_raw + table_entry->entry_offset)) = (ut32) (string_table_cursor - string_table_buf);
-		string_table_cursor += table_entry->size;
-	}
-
-	plo_buf = nbuf + old_plo;
-	ut8 * plo_cursor = plo_buf;
-	*(plo_cursor++) = 0x07;
-
-	string_table_offset += old_plo;
-	string_table_offset += plo_size;
-
-	bool header = true;
-
-	for (i = 1; i < rg->index->length-1; i++) {
-		RGGPackIndexEntry * entry = rg->index->entries[i];
-
-		if (header) {
-			r_write_le32 (plo_cursor, s_files + string_table_offset);
-			plo_cursor += 4;
-			r_write_le32 (plo_cursor, s_filename + string_table_offset);
-			plo_cursor += 4;
-		}
-		r_write_le32 (plo_cursor, entry->tmp_raw->name_off + string_table_offset);
-		plo_cursor += 4;
-
-		if (header) {
-			r_write_le32 (plo_cursor, s_offset + string_table_offset);
-			plo_cursor += 4;
-		}
-		r_write_le32 (plo_cursor, entry->tmp_raw->offset_off + string_table_offset);
-		plo_cursor += 4;
-
-		if (header) {
-			r_write_le32 (plo_cursor, s_size + string_table_offset);
-			plo_cursor += 4;
-		}
-		r_write_le32 (plo_cursor, entry->tmp_raw->size_off + string_table_offset);
-		plo_cursor += 4;
-
-		header = false;
-	}
-	r_write_le32 (plo_cursor, 0xffffffff);
-
-	success = true;
-
-cleanup:
-	for (i = 0; i < rg->index->length; i++) {
-		RGGPackIndexEntry * entry = rg->index->entries[i];
-		if (entry->tmp_raw) {
-			R_FREE(entry->tmp_raw);
-			entry->tmp_raw = NULL;
+		if (i < array->length - 1) {
+			io->cb_printf(", ");
 		}
 	}
-
-	if (string_table) {
-		r_list_foreach (string_table, iter, table_entry) {
-			if (table_entry->string) {
-				R_FREE (table_entry->string);
-			}
-		}
-		r_list_free (string_table);
-	}
-
-	return success;
-}
-
-static int sort_index_string_cb(const void *a, const void *b) {
-	RGGPackIndexString *A = (RGGPackIndexString *)a;
-	RGGPackIndexString *B = (RGGPackIndexString *)b;
-	return strcmp (A->string, B->string);
+	io->cb_printf ("]");
 }
 
 static RGGPackIndexEntry *r_ggpack_entry_new(char * name, ut32 offset, ut32 size) {
@@ -1081,14 +894,6 @@ static void gg_obfuscate(RIOGGPack *rg, ut8 * out_buffer, ut8 *buffer,
 
 static ut8 gg_sample_buffer(RIOGGPack *rg, ut8 *buffer, ut32 index, ut32 displace) {
 	return buffer[index] ^ magic_bytes[rg->version][(index + displace) & 0xf] ^ ((index + displace) * 0x6dL);
-}
-
-static char * r_ggpack_read_str(ut8 * index_buffer, ut32 offset) {
-	ut32 ptr = r_read_le32 (index_buffer + offset);
-	if (ptr == 0xffffffff) {
-		return NULL;
-	}
-	return (char *) &index_buffer[ptr];
 }
 
 static ut32 fread_le32(FILE *f) {
