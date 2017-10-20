@@ -38,7 +38,7 @@ static int r_io_ggpack_read_entry(RIOGGPack *rg, ut32 read_start, ut8 *buf, int 
 static int r_io_ggpack_write_entry(RIOGGPack *rg, ut32 write_start, const ut8 *buf, int count, RGGPackIndexEntry * entry, st32 *prev_obfuscated);
 static bool r_io_ggpack_resize_entry(RIOGGPack *rg, RIO *io, RIODesc * fd, st64 delta, int i);
 static void r_io_ggpack_rebuild_flags(RIOGGPack *rg, RIO *io);
-static bool r_ggpack_index_resize_entry_at (RIOGGPack *rg, int i, ut64 at, st64 delta);
+static bool r_ggpack_index_resize_entry_at(RIOGGPack *rg, int i, ut64 at, st64 delta);
 static bool r_io_ggpack_create_index(RIOGGPack *rg);
 
 static RGGPackIndexEntry *r_ggpack_entry_new(char * name, ut32 offset, ut32 size);
@@ -266,7 +266,7 @@ static int __system(RIO *io, RIODesc *fd, const char *command) {
 	if (!strcmp (command, "help") || !strcmp (command, "h") || !strcmp (command, "?")) {
 		io->cb_printf ("ggpack commands available via =!\n"
 		               "?                          Show this help\n"
-		            // "pgD                        dump GGDictionary at current offset as json\n"
+		               // "pgD                        dump GGDictionary at current offset as json\n"
 		               "pgDi                       dump index GGDictionary as json\n"
 		               "ri                         rebuild index (for debugging purpose)\n"
 		               );
@@ -475,7 +475,7 @@ typedef struct {
 	ut8 saved_byte;
 } RGGSavedByte;
 
-static bool r_ggpack_index_resize_entry_at (RIOGGPack *rg, int i, ut64 at, st64 delta) {
+static bool r_ggpack_index_resize_entry_at(RIOGGPack *rg, int i, ut64 at, st64 delta) {
 	RGGPackIndexEntry * entry = rg->index->entries[i];
 
 	st64 new_size = entry->size + delta;
@@ -563,18 +563,6 @@ static bool r_ggpack_index_resize_entry_at (RIOGGPack *rg, int i, ut64 at, st64 
 		}
 	}
 
-	/*GGHashValue * index_dir = r_ggpack_index_to_hash (rg->index);
-	ut8 * new_index_buf;
-	ut32 new_index_size;
-	if (!gg_hash_serialize (index_dir, &new_index_buf, &new_index_size)) {
-		gg_hash_free (index_dir);
-		return false;
-	}
-
-	ut8 int_buf[4];
-	r_write_le32 (&int_buf[0], new_index_size);
-	__write_internal (rg, 4, &int_buf[0], 4, -1);*/
-
 	ut8 int_buf[4];
 	if (i != rg->index->length-1) {
 		rg->index_offset += delta;
@@ -582,16 +570,8 @@ static bool r_ggpack_index_resize_entry_at (RIOGGPack *rg, int i, ut64 at, st64 
 		__write_internal (rg, 0, &int_buf[0], 4, -1);
 	}
 
-	/*RGGPackIndexEntry * index_entry = rg->index->entries[rg->index->length-1];
-	eprintf ("Index size %u -> %u\n", index_entry->size, new_index_size);
-	index_entry->size = new_index_size;
-	rg->index_size = new_index_size;
-	r_io_ggpack_write_entry (rg, rg->index_offset - (delta > 0 ? delta : 0), new_index_buf, rg->index_size, index_entry, NULL);
-
-	gg_hash_free (index_dir);
-	R_FREE (new_index_buf);*/
-
 	if (delta < 0) {
+		r_ggpack_rebuild_index (rg);
 		ut32 new_size = CURRENT_SIZE (rg);
 		dbg_log ("truncating file to %u\n", new_size);
 		if (ftruncate(fileno(rg->file), new_size) != 0) {
