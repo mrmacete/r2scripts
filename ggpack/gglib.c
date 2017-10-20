@@ -6,6 +6,14 @@
 #include <r_lib.h>
 #include "gglib.h"
 
+#define ENABLE_DEBUG 1
+
+#if ENABLE_DEBUG
+	#define dbg_log(...) eprintf(__VA_ARGS__)
+#else
+	#define dbg_log(...)
+#endif
+
 typedef struct {
 	ut32 * plo;
 	ut32 plo_length;
@@ -69,14 +77,6 @@ static void gg_chunks_add_chunk(GGSerializationContext * ctx, GGChunk *chunk);
 		dbg_log ("%s: parse out of range\n", fname);\
 		goto error;\
 	}\
-
-#define ENABLE_DEBUG 1
-
-#if ENABLE_DEBUG
-	#define dbg_log(...) eprintf(__VA_ARGS__)
-#else
-	#define dbg_log(...)
-#endif
 
 GGHashValue *gg_hash_unserialize(const ut8* in_buf, ut32 buf_size) {
 	GGHashValue * result = NULL;

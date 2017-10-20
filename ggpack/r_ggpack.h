@@ -35,6 +35,8 @@ typedef struct {
 	ut32 index_offset;
 	ut32 index_size;
     ut32 offset;
+    bool wait_for_shift_and_rebuild_index;
+    bool shifting_index;
 } RIOGGPack;
 
 #endif

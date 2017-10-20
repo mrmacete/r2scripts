@@ -10,7 +10,7 @@
 
 #include "r_ggpack.h"
 
-static bool check_bytes(const ut8 *b, ut64 length) {
+static bool __check_bytes(const ut8 *b, ut64 length) {
 	ut32 index_offset = r_read_le32 (b);
 	if (index_offset >= length) {
 		return false;
@@ -28,11 +28,11 @@ static bool check_bytes(const ut8 *b, ut64 length) {
 	return true;
 }
 
-static void *load_bytes(RBinFile *arch, const ut8 *buf, ut64 sz, ut64 loadaddr, Sdb *sdb){
+static void *__load_bytes(RBinFile *arch, const ut8 *buf, ut64 sz, ut64 loadaddr, Sdb *sdb){
 	return R_NOTNULL;
 }
 
-static RBinInfo *info(RBinFile *arch) {
+static RBinInfo *__info(RBinFile *arch) {
 	RBinInfo *ret = R_NEW0 (RBinInfo);
 	if (!ret || !arch || !arch->buf) {
 		free (ret);
@@ -44,19 +44,7 @@ static RBinInfo *info(RBinFile *arch) {
 	return ret;
 }
 
-static RList *entries(RBinFile *arch) {
-	RList *ret;
-	RBinAddr *ptr = NULL;
-	if (!(ret = r_list_new ())) {
-		return NULL;
-	}
-	if ((ptr = R_NEW0 (RBinAddr))) {
-		r_list_append (ret, ptr);
-	}
-	return ret;
-}
-
-static RList *symbols(RBinFile *arch) {
+static RList *__symbols(RBinFile *arch) {
 	RList *result = r_list_newf ((RListFree)free);
 	if (!result) {
 		return NULL;
@@ -86,48 +74,19 @@ static RList *symbols(RBinFile *arch) {
 	return result;
 }
 
-static RList *strings(RBinFile *arch) {
+static RList *__strings(RBinFile *arch) {
 	return NULL;
-}
-
-static RList* sections(RBinFile *arch) {
-	RList *result = r_list_newf ((RListFree)free);
-	if (!result) {
-		return NULL;
-	}
-
-	int i;
-	RIO * io = arch->rbin->iob.io;
-	RIOGGPack *rg = io->desc->data;
-
-	for (i = 0; i < rg->index->length; i++) {
-		RGGPackIndexEntry * entry = rg->index->entries[i];
-
-		RBinSection *section = R_NEW0 (RBinSection);
-		strncpy (section->name, entry->file_name, R_BIN_SIZEOF_STRINGS);
-		section->size = section->vsize = entry->size;
-		section->paddr = section->vaddr = entry->offset;
-		section->add = true;
-		section->is_data = true;
-		section->srwx = 6;
-
-		r_list_append (result, section);
-	}
-
-	return result;
 }
 
 RBinPlugin r_bin_plugin_ggpack = {
 	.name = "ggpack",
 	.desc = "ggpack bin goodies",
 	.license = "MIT",
-	.load_bytes = &load_bytes,
-	//.entries = &entries,
-	.symbols = &symbols,
-	//.sections = &sections,
-	.check_bytes = &check_bytes,
-	.info = &info,
-	//.strings = &strings,
+	.load_bytes = &__load_bytes,
+	.symbols = &__symbols,
+	.strings = &__strings,
+	.check_bytes = &__check_bytes,
+	.info = &__info,
 };
 
 #ifndef CORELIB
