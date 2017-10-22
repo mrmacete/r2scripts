@@ -17,7 +17,7 @@ def import_ggfile (input_path):
                 diff = size - f['size']
                 sign = '+'
                 if diff < 0:
-                    sign = '-'
+                    sign = ''
                 r.cmd('r%s%d@%d' % (sign, diff, f['offset']))
                 r.cmd('wf %s@%d' % (input_path, f['offset']))
             return

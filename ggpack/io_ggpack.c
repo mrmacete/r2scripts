@@ -55,6 +55,7 @@ static void gg_obfuscate(RIOGGPack *rg, ut8 * out_buffer, ut8 *buffer,
                          ut32 key_offset, ut32 key_size, ut32 buf_offset, ut32 buf_size);
 
 static void r_io_ggpack_dump_index(RIO * io, RIOGGPack * rg);
+static void r_io_ggpack_dump_dictionary_at_offset(RIO * io, RIOGGPack * rg);
 
 static void r_dump_gghash_json(RIO * io, GGHashValue * hash);
 static void r_dump_ggarray_json(RIO * io, GGArrayValue * array);
@@ -116,7 +117,8 @@ static RIODesc *__open(RIO *io, const char *pathname, int rw, int mode) {
 	}
 
 	rg->file_name = strdup (pathname + 9);
-	rg->file = fopen (rg->file_name, (mode & R_IO_RW) ? "rb+" : "rb");
+	eprintf ("open mode %s\n", (rw & R_IO_RW) == R_IO_RW ? "rb+" : "rb");
+	rg->file = fopen (rg->file_name, (rw & R_IO_RW) == R_IO_RW ? "rb+" : "rb");
 	if (!rg->file) {
 		goto error;
 	}
@@ -266,8 +268,8 @@ static int __system(RIO *io, RIODesc *fd, const char *command) {
 	if (!strcmp (command, "help") || !strcmp (command, "h") || !strcmp (command, "?")) {
 		io->cb_printf ("ggpack commands available via =!\n"
 		               "?                          Show this help\n"
-		               // "pgD                        dump GGDictionary at current offset as json\n"
-		               "pgDi                       dump index GGDictionary as json\n"
+		               "pDj                        dump GGDictionary at current offset as json\n"
+		               "pij                        dump index GGDictionary as json\n"
 		               "ri                         rebuild index (for debugging purpose)\n"
 		               );
 		return true;
@@ -275,7 +277,12 @@ static int __system(RIO *io, RIODesc *fd, const char *command) {
 
 	rg = fd->data;
 
-	if (!strcmp (command, "pgDi")) {
+	if (!strcmp (command, "pDj")) {
+		r_io_ggpack_dump_dictionary_at_offset (io, rg);
+		return 0;
+	}
+
+	if (!strcmp (command, "pij")) {
 		r_io_ggpack_dump_index (io, rg);
 		return 0;
 	}
@@ -289,7 +296,7 @@ static int __system(RIO *io, RIODesc *fd, const char *command) {
 }
 
 static void r_ggpack_rebuild_index(RIOGGPack * rg) {
-	eprintf ("rebuilding index...\n");
+	dbg_log ("rebuilding index...\n");
 	GGHashValue * index_dir = r_ggpack_index_to_hash (rg->index);
 	ut8 * new_index_buf;
 	ut32 new_index_size;
@@ -558,7 +565,7 @@ static bool r_ggpack_index_resize_entry_at(RIOGGPack *rg, int i, ut64 at, st64 d
 			rg->index->entries[j]->offset = offset;
 			rg->index->entries[j]->size = size;
 
-			__write_internal (rg, offset, buf, size, -1);
+			r_io_ggpack_write_entry (rg, offset, buf, size, rg->index->entries[j], NULL);
 			R_FREE (buf);
 		}
 	}
@@ -578,7 +585,7 @@ static bool r_ggpack_index_resize_entry_at(RIOGGPack *rg, int i, ut64 at, st64 d
 			return false;
 		}
 	} else if (delta > 0) {
-		eprintf ("waiting for shift...\n");
+		dbg_log ("waiting for shift...\n");
 		rg->wait_for_shift_and_rebuild_index = true;
 	}
 
@@ -589,17 +596,21 @@ static bool r_ggpack_index_resize_entry_at(RIOGGPack *rg, int i, ut64 at, st64 d
 
 static void r_io_ggpack_rebuild_flags(RIOGGPack *rg, RIO *io) {
 	char command[1024];
+	char name[1024];
 	command[1023] = 0;
 
 	dbg_log ("rebuilding flags...\n");
 	int i;
 	for (i = 0; i < rg->index->length; i++) {
 		RGGPackIndexEntry * entry = rg->index->entries[i];
+		strncpy (name, entry->file_name, 1023);
+		name[1023] = 0;
+		r_name_filter (name, strlen (name));
 
-		snprintf (command, 1023, "f-sym.%s", entry->file_name);
+		snprintf (command, 1023, "f-sym.%s", name);
 		io->cb_core_cmd (io->user, command);
 
-		snprintf (command, 1023, "f sym.%s %u %u", entry->file_name, entry->size, entry->offset);
+		snprintf (command, 1023, "f sym.%s %u@%u", name, entry->size, entry->offset);
 		io->cb_core_cmd (io->user, command);
 	}
 }
@@ -746,15 +757,49 @@ static int entries_sort_func(const void *a, const void *b) {
 
 static void r_io_ggpack_dump_index(RIO * io, RIOGGPack * rg) {
 	ut8 * index_buf = malloc (rg->index_size);
+	if (!index_buf) {
+		return;
+	}
+
 	__read_internal (rg, rg->index_offset, index_buf, rg->index_size, -1);
 	GGHashValue * index_dir = gg_hash_unserialize (index_buf, rg->index_size);
 	if (!index_dir) {
+		R_FREE (index_buf);
 		return;
 	}
 
 	r_dump_gghash_json (io, index_dir);
 
-	free (index_buf);
+	gg_hash_free (index_dir);
+	R_FREE (index_buf);
+}
+
+static void r_io_ggpack_dump_dictionary_at_offset(RIO * io, RIOGGPack * rg) {
+	int i = r_ggpack_index_search(rg->index, rg->offset);
+	if (i == -1) {
+		eprintf ("offset out of range\n");
+		return;
+	}
+
+	RGGPackIndexEntry * entry = rg->index->entries[i];
+	ut32 size = entry->offset + entry->size - rg->offset;
+	ut8 * buf = malloc (size);
+	if (!buf) {
+		return;
+	}
+
+	__read_internal (rg, rg->offset, buf, size, -1);
+	GGHashValue * hash = gg_hash_unserialize (buf, size);
+	if (!hash) {
+		R_FREE (buf);
+		eprintf ("cannot parse dictionary at 0x%x\n", rg->offset);
+		return;
+	}
+
+	r_dump_gghash_json (io, hash);
+
+	gg_hash_free (hash);
+	R_FREE (buf);
 }
 
 static void r_dump_gghash_json(RIO * io, GGHashValue * hash) {
@@ -783,7 +828,7 @@ static void r_dump_gghash_json(RIO * io, GGHashValue * hash) {
 			io->cb_printf ("\"UNSUPPORTED TYPE %d\"", pair->value->type);
 		}
 
-		if (i < hash->n_pairs) {
+		if (i < hash->n_pairs-1) {
 			io->cb_printf(", ");
 		}
 	}
