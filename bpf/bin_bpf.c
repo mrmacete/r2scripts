@@ -15,7 +15,7 @@ static char *get_filetype (RBinFile *arch) {
 	ck = r_magic_new (0);
 	if (ck && arch && arch->buf) {
 		const char *tmp = NULL;
-		r_magic_load (ck, R_MAGIC_PATH);
+		r_magic_load (ck, R2_SDB_MAGIC);
 		r_buf_read_at (arch->buf, 0, buf, sizeof (buf));
 		tmp = r_magic_buffer (ck, buf, sizeof (buf));
 		if (tmp) res = strdup (tmp);
