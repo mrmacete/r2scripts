@@ -657,9 +657,9 @@ static void lower_op(char *c) {
 #define R_TRUE 1
 static void normalize(RStrBuf* buf) {
 	int i;
-    char* buf_asm;
+        char* buf_asm;
 	if (!buf) return;
-    buf_asm = r_strbuf_get(buf);
+        buf_asm = r_strbuf_get(buf);
 
 	/* this normalization step is largely sub-optimal */
 
@@ -681,7 +681,7 @@ static void normalize(RStrBuf* buf) {
 	r_str_replace_in (buf_asm, (ut32)i, "%", "", R_TRUE);
 	r_str_replace_in (buf_asm, (ut32)i, "#", "", R_TRUE);
 	r_str_do_until_token (lower_op, buf_asm, '\0');
-    r_strbuf_set(buf, buf_asm);
+        r_strbuf_set(buf, buf_asm);
 
 }
 
