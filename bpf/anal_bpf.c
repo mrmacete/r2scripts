@@ -476,7 +476,7 @@ static int bpf_int_exit(RAnalEsil *esil, int interrupt) {
 static int esil_bpf_init (RAnalEsil *esil) {
 	if (!esil) return false;
 	// XXX. this is arbitrary!!
-	r_anal_esil_set_interrupt (esil, 0x0, bpf_int_exit);
+	r_anal_esil_set_interrupt (esil, bpf_int_exit);
 	return true;
 }
 
@@ -522,7 +522,6 @@ struct r_anal_plugin_t r_anal_plugin_bpf = {
 	.cmd_ext = NULL,
 	.esil_init = &esil_bpf_init,
 	.esil_post_loop = NULL,
-	.esil_intr = NULL,
 	.esil_trap = NULL,
 	.esil_fini = &esil_bpf_init
 
