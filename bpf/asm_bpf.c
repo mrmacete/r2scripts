@@ -237,10 +237,10 @@ static int disassemble(RAsm *a, RAsmOp *r_op, const ut8 *buf, int len) {
 	vbuf[sizeof(vbuf) - 1] = 0;
 
 	if ((BPF_CLASS(f->code) == BPF_JMP && BPF_OP(f->code) != BPF_JA))
-		sprintf (r_op->buf_asm, "%s %s, 0x%08"PFMT64x", 0x%08"PFMT64x"", op, vbuf,
+		r_strbuf_setf (&r_op->buf_asm, "%s %s, 0x%08"PFMT64x", 0x%08"PFMT64x"", op, vbuf,
 			  a->pc + 8 + f->jt * 8, a->pc + 8 + f->jf * 8);
 	else
-		sprintf (r_op->buf_asm, "%s %s", op, vbuf);
+		r_strbuf_setf (&r_op->buf_asm, "%s %s", op, vbuf);
 
 	return r_op->size = 8;
 }
@@ -250,7 +250,7 @@ static int disassemble(RAsm *a, RAsmOp *r_op, const ut8 *buf, int len) {
 #define PARSER_MAX_TOKENS 4
 
 #define COPY_AND_RET(a, b) \
-	memcpy(a, b, sizeof(*b));\
+	r_strbuf_setbin(&a, b, sizeof(*b) + 1);\
 	return 0;
 
 #define PARSE_FAILURE(message, arg...) \
@@ -654,10 +654,12 @@ static void lower_op(char *c) {
 		c[0] += 0x20;
 	}
 }
-
-static void normalize(char* buf_asm) {
+#define R_TRUE 1
+static void normalize(RStrBuf* buf) {
 	int i;
-	if (!buf_asm) return;
+    char* buf_asm;
+	if (!buf) return;
+    buf_asm = r_strbuf_get(buf);
 
 	/* this normalization step is largely sub-optimal */
 
@@ -679,6 +681,7 @@ static void normalize(char* buf_asm) {
 	r_str_replace_in (buf_asm, (ut32)i, "%", "", R_TRUE);
 	r_str_replace_in (buf_asm, (ut32)i, "#", "", R_TRUE);
 	r_str_do_until_token (lower_op, buf_asm, '\0');
+    r_strbuf_set(buf, buf_asm);
 
 }
 
@@ -692,13 +695,12 @@ static int assemble(RAsm *a, RAsmOp *op, const char *buf) {
 		return 0;
 	}
 
-	strncpy (op->buf_asm, buf, R_ASM_BUFSIZE-1);
-	op->buf_asm[R_ASM_BUFSIZE-1] = 0;
-	normalize(op->buf_asm);
+	r_strbuf_set (&op->buf_asm, buf);
+	normalize(&op->buf_asm);
 
 	// tokenization, copied from profile.c
 	j = 0;
-	p = op->buf_asm;
+	p = r_strbuf_get(&op->buf_asm);
 
 	// For every word
 	while (*p) {
