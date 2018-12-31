@@ -46,6 +46,9 @@
 
 #define INSIDE_M(k) ((k) >= 0 && (k) <= 16)
 
+static bool bpf_int_exit(RAnalEsil *esil, ut32 interrupt, void *user);
+RAnalEsilInterruptHandler ih = {0, NULL, NULL, &bpf_int_exit, NULL};
+
 static const char* M[] = {
 	"M[0]",
 	"M[1]",
@@ -456,7 +459,7 @@ static int set_reg_profile(RAnal *anal) {
 	return r_reg_set_profile_string (anal->reg, p);
 }
 
-static int bpf_int_exit(RAnalEsil *esil, int interrupt) {
+static bool bpf_int_exit(RAnalEsil *esil, ut32 interrupt, void *user) {
 	int syscall;
 	ut64 r0;
 	if (!esil || (interrupt != 0x0))
@@ -472,18 +475,16 @@ static int bpf_int_exit(RAnalEsil *esil, int interrupt) {
 	return true;
 }
 
-
 static int esil_bpf_init (RAnalEsil *esil) {
 	if (!esil) return false;
-	// XXX. this is arbitrary!!
-	r_anal_esil_set_interrupt (esil, bpf_int_exit);
+	RAnalEsilInterrupt *intr = r_anal_esil_interrupt_new (esil, 0, &ih);
+	r_anal_esil_set_interrupt (esil, intr);
 	return true;
 }
 
 static int esil_bpf_fini (RAnalEsil *esil) {
 	return true;
 }
-
 
 struct r_anal_plugin_t r_anal_plugin_bpf = {
 	.name = "bpf",
@@ -523,8 +524,7 @@ struct r_anal_plugin_t r_anal_plugin_bpf = {
 	.esil_init = &esil_bpf_init,
 	.esil_post_loop = NULL,
 	.esil_trap = NULL,
-	.esil_fini = &esil_bpf_init
-
+	.esil_fini = &esil_bpf_fini
 };
 
 #ifndef CORELIB

@@ -250,7 +250,7 @@ static int disassemble(RAsm *a, RAsmOp *r_op, const ut8 *buf, int len) {
 #define PARSER_MAX_TOKENS 4
 
 #define COPY_AND_RET(a, b) \
-	r_strbuf_setbin(&a, b, sizeof(*b) + 1);\
+	r_strbuf_setbin(&a, (const ut8 *)b, sizeof(*b) + 1);\
 	return 0;
 
 #define PARSE_FAILURE(message, arg...) \
@@ -280,7 +280,7 @@ static int disassemble(RAsm *a, RAsmOp *r_op, const ut8 *buf, int len) {
 	dst = strtoul (&tok[n][0], &end, 0);\
 	if (*end != '\0' && *end != ',') {\
 		return -1;\
-	} 
+	}
 
 #define PARSE_OFFSET_OR_FAIL(dst, tok,n,off) \
 	dst = strtoul (&tok[n][off], &end, 10);\
@@ -340,7 +340,7 @@ static int disassemble(RAsm *a, RAsmOp *r_op, const ut8 *buf, int len) {
 #define ENFORCE_COUNT_GE(count, n) \
 	if (count < n) PARSE_FAILURE ("invalid argument count, try to omit '#'");
 
-static int assemble_ld(RAsm *a, RAsmOp *op, 
+static int assemble_ld(RAsm *a, RAsmOp *op,
 	char *tok[PARSER_MAX_TOKENS], int count, RBpfSockFilter * f) {
 	char * end;
 
@@ -414,7 +414,7 @@ static int assemble_ld(RAsm *a, RAsmOp *op,
 	return 0;
 }
 
-static int assemble_j(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS], 
+static int assemble_j(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS],
 	int count, RBpfSockFilter * f) {
 	int label;
 	ut8 temp;
@@ -485,10 +485,10 @@ static int assemble_j(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS],
 	return -1;
 }
 
-static int assemble_alu(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS], 
+static int assemble_alu(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS],
 	int count, RBpfSockFilter * f) {
 	char *end;
-	
+
 	if (CMP4 (tok,0, 'a','d','d','\0')) {
 		ENFORCE_COUNT(count, 2);
 		f->code = BPF_ALU_ADD;
@@ -568,7 +568,7 @@ static int assemble_alu(RAsm *a, RAsmOp *op, char *tok[PARSER_MAX_TOKENS],
 	return -1;
 }
 
-static int assemble_tok(RAsm *a, RAsmOp *op, 
+static int assemble_tok(RAsm *a, RAsmOp *op,
 	char *tok[PARSER_MAX_TOKENS], int count) {
 	char *end;
 	int oplen = 0;
@@ -724,7 +724,7 @@ static int assemble(RAsm *a, RAsmOp *op, const char *buf) {
 			tmp[i++] = *p++;
 		}
 		tmp[i] = '\0';
-		// Limit the number of tokens 
+		// Limit the number of tokens
 		if (j > PARSER_MAX_TOKENS - 1) {
 			break;
 		}
