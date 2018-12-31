@@ -7,28 +7,31 @@
 #include <r_bin.h>
 #include <r_magic.h>
 
-static char *get_filetype (RBinFile *arch) {
-	ut8 buf[4096] = {0};
+static char *get_filetype(RBinFile *arch) {
+	ut8 buf[4096] = { 0 };
 	char *res = NULL;
-	RMagic * ck;
-	if (!arch) return NULL;
+	RMagic *ck;
+	if (!arch)
+		return NULL;
 	ck = r_magic_new (0);
 	if (ck && arch && arch->buf) {
 		const char *tmp = NULL;
 		r_magic_load (ck, R2_SDB_MAGIC);
 		r_buf_read_at (arch->buf, 0, buf, sizeof (buf));
 		tmp = r_magic_buffer (ck, buf, sizeof (buf));
-		if (tmp) res = strdup (tmp);
+		if (tmp)
+			res = strdup (tmp);
 	}
 	r_magic_free (ck);
 	return res;
 }
 
-static RBinInfo* info(RBinFile *arch) {
+static RBinInfo *info(RBinFile *arch) {
 	RBinInfo *ret = R_NEW0 (RBinInfo);
-	if (!ret) return NULL;
+	if (!ret)
+		return NULL;
 	ret->lang = "";
-	ret->file = arch->file? strdup (arch->file): NULL;
+	ret->file = arch->file ? strdup (arch->file) : NULL;
 	ret->type = get_filetype (arch);
 	ret->has_pi = 0;
 	ret->has_canary = 0;
